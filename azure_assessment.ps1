@@ -17,16 +17,21 @@ function AzureAssessment {
     )
     #Login
     Connect-AzAccount
-
+    Write-Host("Gathering subscrition info")
     # Environmental information
     $subscription = Get-AzSubscription
 
     Get-AzSubscription | Export-Csv -Path .\subscriptions.csv -NoTypeInformation
+    Write-Host("Gathering Tenant Info")
     Get-AzTenant | Export-Csv -Path .\Tenants.csv -NoTypeInformation
+    Write-Host("Gathering Resource Group Info")
     Get-AzResourceGroup | Export-Csv -Path .\resourcegroups.csv -NoTypeInformation
+    Write-Host("Gathering Disk Info")
+    Get-AzDisk | Export-Csv -Path .\Diskifno.csv -NoTypeInformation
+    Write-Host("Gathering VM Info")
     foreach ($item in $subscription) {
         Select-AzSubscription -SubscriptionId $item.Id
-        $reportName = "report_" + $item.Id + ".csv"
+        $reportName = "vm_report_Subscription_" + $item.Id + ".csv"
         $report = @()
         $vms = Get-AzVM
         $publicIps = Get-AzPublicIpAddress
@@ -56,13 +61,15 @@ function AzureAssessment {
     }
     # Backup assessment
     if ($backupAssessment -eq $true) {
+        Write-Host("Gathering Backup info Info, this can take a while")
         $vaults = Get-AzRecoveryServicesVault
         foreach ($item in $vaults) {
             $policyName = "policies_" + $item.SubscriptionId + ".csv"
             $jobName = "job_" + $item.SubscriptionId + ".csv"
-            # Set-AzRecoveryServicesVaultContext -Vault $item > still figuring out if this is needed
+            Set-AzRecoveryServicesVaultContext -VaultId $item
             Get-AzRecoveryServicesBackupProtectionPolicy | Export-Csv $policyName
             Get-AzRecoveryServicesBackupJob -VaultId $item.Id | Export-Csv $jobName
         }
     }
 }
+
