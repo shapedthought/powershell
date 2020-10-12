@@ -17,7 +17,7 @@ function AzureAssessment {
     )
     #Login
     Connect-AzAccount
-    Write-Host("Gathering subscrition info")
+    Write-Host("Gathering subscription info")
     # Environmental information
     $subscription = Get-AzSubscription
 
