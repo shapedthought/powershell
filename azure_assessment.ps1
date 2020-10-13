@@ -66,7 +66,7 @@ function AzureAssessment {
         foreach ($item in $vaults) {
             $policyName = "policies_" + $item.SubscriptionId + ".csv"
             $jobName = "job_" + $item.SubscriptionId + ".csv"
-            Set-AzRecoveryServicesVaultContext -VaultId $item
+            Set-AzRecoveryServicesVaultContext -Vault $item
             Get-AzRecoveryServicesBackupProtectionPolicy | Export-Csv $policyName
             Get-AzRecoveryServicesBackupJob -VaultId $item.Id | Export-Csv $jobName
         }
