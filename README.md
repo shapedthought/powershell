@@ -16,6 +16,8 @@ Script to pull down the configuration of a Azure environment including:
 - Tenants
 - Resource groups
 - VM information (not including disk info yet)
+- Managed Disks
+- Scans storage accounts for attached and unattached unmanaged disks
 
 As well as the backup environment if present:
 
