@@ -43,7 +43,7 @@ function AzureAssessment {
             Write-Host("Scanning container " + $container.Name + " for .vhd")
             $blobs = Get-AzStorageBlob -Container $container.Name -Context $context
             $vhd = $blobs | Where-Object { $_.BlobType -eq 'PageBlob' -and $_.Name.EndsWith('.vhd') }
-            if($vhd.Length -gt 0) {
+            if ($vhd.Length -gt 0) {
                 foreach ($item in $vhd) {
                     $info.Account = $storageAccount.StorageAccountName
                     $info.Container = $container.Name
@@ -54,19 +54,21 @@ function AzureAssessment {
                     $info.Lease = $item.BlobProperties.LeaseStatus
                     $storageReport += $info
                 }
-                if($check -eq $False) {
+                if ($check -eq $False) {
                     $check = $True
                 }
-            } else {
+            }
+            else {
                 Write-Host("No .vhd in " + $container.Name)
             }
         }
-        if($check) {
+        if ($check) {
             Write-Host("Writing Report for Storage Account" + $storageAccount.StorageAccountName)
             Write-Host("")
             $reportName = ".\vhd-" + $storageAccount.StorageAccountName + ".csv"
             $storageReport | Export-Csv -Path $reportName -NoTypeInformation
-        } else {
+        }
+        else {
             Write-Host("No .vhd in Storage Account" + $storageAccount.StorageAccountName)
             Write-Host("")
         }
@@ -110,6 +112,17 @@ function AzureAssessment {
         foreach ($item in $vaults) {
             $policyName = "policies_" + $item.SubscriptionId + ".csv"
             $jobName = "job_" + $item.SubscriptionId + ".csv"
+            $items = "backup_items" + $item.SubscriptionId + ".csv"
+            $containers = Get-AzRecoveryServicesBackupContainer -ContainerType AzureVM -VaultId $item.ID
+            $report = @()
+            foreach ($container in $containers) {
+                $backupItem = Get-AzRecoveryServicesBackupItem -Container $container -WorkloadType AzureVM -VaultId $item.ID
+                $name = $backupItem.Name.Split(';')[-1]
+                $backupItem | Add-Member -NotePropertyName VmName -NotePropertyValue $name
+                $backupItem = $backupItem | Select-Object -Property VmName, PolicyId, ProtectionState, LastBackupStatus, LatestRecoveryPoint, ContainerName
+                $report += $backupItem
+            }
+            $report | Export-CSV $items -NoTypeInformation
             Set-AzRecoveryServicesVaultContext -Vault $item
             Get-AzRecoveryServicesBackupProtectionPolicy | Export-Csv $policyName -NoTypeInformation
             Get-AzRecoveryServicesBackupJob -VaultId $item.Id | Export-Csv $jobName -NoTypeInformation
