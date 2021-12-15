@@ -28,7 +28,7 @@ function AzureAssessment {
     Write-Host("Gathering Resource Group Info")
     Get-AzResourceGroup | Export-Csv -Path .\resourcegroups.csv -NoTypeInformation
     Write-Host("Gathering Disk Info - Managed Disk")
-    Get-AzDisk | Export-Csv -Path .\Diskifno.csv -NoTypeInformation
+    Get-AzDisk | Export-Csv -Path .\Diskinfo.csv -NoTypeInformation
     Write-Host("Scanning Storage Accounts for unmanged Disks")
     $storageAccounts = Get-AzStorageAccount
     foreach ($storageAccount in $storageAccounts) {
