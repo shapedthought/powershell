@@ -107,7 +107,7 @@ function AzureAssessment {
     # Backup assessment
     if ($backupAssessment -eq $true) {
 
-        Write-Host("Gathering Backup info Info, this can take a while")
+        Write-Host("Gathering Backup Info, this can take a while")
         $vaults = Get-AzRecoveryServicesVault
         foreach ($item in $vaults) {
             $policyName = "policies_" + $item.SubscriptionId + ".csv"
