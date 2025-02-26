@@ -18,7 +18,7 @@ function AzureAssessment {
     [CmdletBinding()]
     param(
         [Parameter(HelpMessage = "Please state if backup is required")]
-        [bool]$BackupAssessment = $true,
+        [bool]$BackupAssessment = $false,
         [Parameter(HelpMessage = "Please state if unmanaged disks assessment is required")]
         [bool]$AssessUnmanaged = $false
     )
