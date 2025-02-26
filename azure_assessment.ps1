@@ -1,11 +1,16 @@
 <#
 .Synopsis
     Azure assessment on environmental and backup environments
+    This is not a Veeam tool and there is no support for this script.
 .DESCRIPTION
     Script to get information on an Azure environment including
     infrastructure and backup if in use.
     Backup assessment can be disable by adding the -backupAssessment $false flag.
     Requires the Azure PowerShell module installed.
+.PARAMETER backupAssessment
+    Flag to enable or disable backup assessment
+.PARAMETER assessUnmanaged
+    Flag to enable or disable unmanaged disk assessment
 .EXAMPLE
     . .\azure_assessment.ps1
     AzureAssessment
@@ -14,8 +19,19 @@ function AzureAssessment {
     [CmdletBinding()]
     param(
         [Parameter(HelpMessage = "Please state if backup is required")]
-        [bool]$backupAssessment = $true
+        [bool]$backupAssessment = $true,
+        [Parameter(HelpMessage = "Please state if unmanaged disks assessment is required")]
+        [bool]$assessUnmanaged = $false
     )
+    #Confirmation
+
+    Write-Host("This script will gather information on your Azure environment")
+    $confirm = Read-Host("Please confirm that you understand this is not a Veeam tool and there is no support for this script. Type 'yes' to continue")
+    if ($confirm -ne "yes") {
+        Write-Host("Exiting script")
+        Exit
+    }
+    Write-Host("Starting Azure Assessment")
     #Login
     Connect-AzAccount
     Write-Host("Gathering subscription info")
@@ -29,50 +45,54 @@ function AzureAssessment {
     Get-AzResourceGroup | Export-Csv -Path .\resourcegroups.csv -NoTypeInformation
     Write-Host("Gathering Disk Info - Managed Disk")
     Get-AzDisk | Export-Csv -Path .\Diskinfo.csv -NoTypeInformation
-    Write-Host("Scanning Storage Accounts for unmanged Disks")
-    $storageAccounts = Get-AzStorageAccount
-    foreach ($storageAccount in $storageAccounts) {
-        Write-Host("Checking Storage Account: " + $storageAccount.StorageAccountName)
-        $info = "" | Select-Object Account, Container, Size, IsDeleted, BlobType, Name, Lease
-        $check = $False
-        $storageReport = @()
-        $storageKey = (Get-AzStorageAccountKey -ResourceGroupName $storageAccount.ResourceGroupName -Name $storageAccount.StorageAccountName)[0].Value
-        $context = New-AzStorageContext -StorageAccountName $storageAccount.StorageAccountName -StorageAccountKey $storageKey
-        $containers = Get-AzStorageContainer -Context $context
-        foreach ($container in $containers) {
-            Write-Host("Scanning container " + $container.Name + " for .vhd")
-            $blobs = Get-AzStorageBlob -Container $container.Name -Context $context
-            $vhd = $blobs | Where-Object { $_.BlobType -eq 'PageBlob' -and $_.Name.EndsWith('.vhd') }
-            if ($vhd.Length -gt 0) {
-                foreach ($item in $vhd) {
-                    $info.Account = $storageAccount.StorageAccountName
-                    $info.Container = $container.Name
-                    $info.Size = $item.Length / 1GB
-                    $info.IsDeleted = $item.IsDeleted
-                    $info.BlobType = $item.BlobType
-                    $info.Name = $item.Name
-                    $info.Lease = $item.BlobProperties.LeaseStatus
-                    $storageReport += $info
+
+    if ($assessUnmanaged -eq $true) {
+        Write-Host("Scanning Storage Accounts for unmanaged Disks")
+        $storageAccounts = Get-AzStorageAccount
+        foreach ($storageAccount in $storageAccounts) {
+            Write-Host("Checking Storage Account: " + $storageAccount.StorageAccountName)
+            $info = "" | Select-Object Account, Container, Size, IsDeleted, BlobType, Name, Lease
+            $check = $False
+            $storageReport = @()
+            $storageKey = (Get-AzStorageAccountKey -ResourceGroupName $storageAccount.ResourceGroupName -Name $storageAccount.StorageAccountName)[0].Value
+            $context = New-AzStorageContext -StorageAccountName $storageAccount.StorageAccountName -StorageAccountKey $storageKey
+            $containers = Get-AzStorageContainer -Context $context
+            foreach ($container in $containers) {
+                Write-Host("Scanning container " + $container.Name + " for .vhd")
+                $blobs = Get-AzStorageBlob -Container $container.Name -Context $context
+                $vhd = $blobs | Where-Object { $_.BlobType -eq 'PageBlob' -and $_.Name.EndsWith('.vhd') }
+                if ($vhd.Length -gt 0) {
+                    foreach ($item in $vhd) {
+                        $info.Account = $storageAccount.StorageAccountName
+                        $info.Container = $container.Name
+                        $info.Size = $item.Length / 1GB
+                        $info.IsDeleted = $item.IsDeleted
+                        $info.BlobType = $item.BlobType
+                        $info.Name = $item.Name
+                        $info.Lease = $item.BlobProperties.LeaseStatus
+                        $storageReport += $info
+                    }
+                    if ($check -eq $False) {
+                        $check = $True
+                    }
                 }
-                if ($check -eq $False) {
-                    $check = $True
+                else {
+                    Write-Host("No .vhd in " + $container.Name)
                 }
+            }
+            if ($check) {
+                Write-Host("Writing Report for Storage Account" + $storageAccount.StorageAccountName)
+                Write-Host("")
+                $reportName = ".\vhd-" + $storageAccount.StorageAccountName + ".csv"
+                $storageReport | Export-Csv -Path $reportName -NoTypeInformation
             }
             else {
-                Write-Host("No .vhd in " + $container.Name)
+                Write-Host("No .vhd in Storage Account" + $storageAccount.StorageAccountName)
+                Write-Host("")
             }
         }
-        if ($check) {
-            Write-Host("Writing Report for Storage Account" + $storageAccount.StorageAccountName)
-            Write-Host("")
-            $reportName = ".\vhd-" + $storageAccount.StorageAccountName + ".csv"
-            $storageReport | Export-Csv -Path $reportName -NoTypeInformation
-        }
-        else {
-            Write-Host("No .vhd in Storage Account" + $storageAccount.StorageAccountName)
-            Write-Host("")
-        }
     }
+
     Write-Host("Gathering VM Info")
     foreach ($item in $subscription) {
         Select-AzSubscription -SubscriptionId $item.Id
@@ -106,7 +126,6 @@ function AzureAssessment {
     }
     # Backup assessment
     if ($backupAssessment -eq $true) {
-
         Write-Host("Gathering Backup Info, this can take a while")
         $vaults = Get-AzRecoveryServicesVault
         foreach ($item in $vaults) {
@@ -129,4 +148,3 @@ function AzureAssessment {
         }
     }
 }
-
