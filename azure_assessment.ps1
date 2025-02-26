@@ -4,15 +4,14 @@
 .DESCRIPTION
     Script to get information on an Azure environment including
     infrastructure and backup if in use.
-    Backup assessment can be disable by adding the -backupAssessment $false flag.
+    Backup assessment can be enabled by adding the -backupAssessment $true flag.
     Requires the Azure PowerShell module installed.
 .PARAMETER BackupAssessment
-    Flag to enable or disable backup assessment
+    Flag to enable or disable backup assessment - default is false
 .PARAMETER AssessUnmanaged
-    Flag to enable or disable unmanaged disk assessment
+    Flag to enable or disable unmanaged disk assessment - default is false
 .EXAMPLE
-    . .\azure_assessment.ps1
-    AzureAssessment
+    .\azure_assessment.ps1
 #>
 function AzureAssessment {
     [CmdletBinding()]
