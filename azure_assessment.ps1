@@ -1,7 +1,6 @@
 <#
 .Synopsis
     Azure assessment on environmental and backup environments
-    This is not a Veeam tool and there is no support for this script.
 .DESCRIPTION
     Script to get information on an Azure environment including
     infrastructure and backup if in use.
@@ -102,7 +101,7 @@ function AzureAssessment {
         $publicIps = Get-AzPublicIpAddress
         $nics = Get-AzNetworkInterface | Where-Object { $null -NE $_.VirtualMachine } 
         foreach ($nic in $nics) { 
-            $info = "" | Select-Object VmName, ResourceGroupName, Region, VmSize, VirtualNetwork, Subnet, PrivateIpAddress, OsType, PublicIPAddress, NicName, ApplicationSecurityGroup 
+            $info = "" | Select-Object VmName, ResourceGroupName, Region, VmSize, VirtualNetwork, Subnet, PrivateIpAddress, OsType, PublicIPAddress, NicName, ApplicationSecurityGroup, OsDiskCapacity, TotalDataDiskCapacity
             $vm = $vms | Where-Object -Property Id -eq $nic.VirtualMachine.id 
             foreach ($publicIp in $publicIps) { 
                 if ($nic.IpConfigurations.id -eq $publicIp.ipconfiguration.Id) {
@@ -119,9 +118,18 @@ function AzureAssessment {
             $info.PrivateIpAddress = $nic.IpConfigurations.PrivateIpAddress 
             $info.NicName = $nic.Name 
             $info.ApplicationSecurityGroup = $nic.IpConfigurations.ApplicationSecurityGroups.Id 
+            $info.OsDiskCapacity = $vm.StorageProfile.OsDisk.DiskSizeGB
+            
+            # Calculate total disk capacity
+            $totalDiskCapacity = 0
+            foreach ($disk in $vm.StorageProfile.DataDisks) {
+                $totalDiskCapacity += $disk.DiskSizeGB
+            }
+            $info.TotalDataDiskCapacity = $totalDiskCapacity
+
             $report += $info 
         } 
-        $report | Format-Table VmName, ResourceGroupName, Region, VmSize, VirtualNetwork, Subnet, PrivateIpAddress, OsType, PublicIPAddress, NicName, ApplicationSecurityGroup 
+        $report | Format-Table VmName, ResourceGroupName, Region, VmSize, VirtualNetwork, Subnet, PrivateIpAddress, OsType, PublicIPAddress, NicName, ApplicationSecurityGroup, OsDiskCapacity, TotalDataDiskCapacity
         $report | Export-CSV "$reportName" -NoTypeInformation
     }
     # Backup assessment
