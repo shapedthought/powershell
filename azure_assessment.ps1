@@ -7,9 +7,9 @@
     infrastructure and backup if in use.
     Backup assessment can be disable by adding the -backupAssessment $false flag.
     Requires the Azure PowerShell module installed.
-.PARAMETER backupAssessment
+.PARAMETER BackupAssessment
     Flag to enable or disable backup assessment
-.PARAMETER assessUnmanaged
+.PARAMETER AssessUnmanaged
     Flag to enable or disable unmanaged disk assessment
 .EXAMPLE
     . .\azure_assessment.ps1
@@ -19,9 +19,9 @@ function AzureAssessment {
     [CmdletBinding()]
     param(
         [Parameter(HelpMessage = "Please state if backup is required")]
-        [bool]$backupAssessment = $true,
+        [bool]$BackupAssessment = $true,
         [Parameter(HelpMessage = "Please state if unmanaged disks assessment is required")]
-        [bool]$assessUnmanaged = $false
+        [bool]$AssessUnmanaged = $false
     )
     #Confirmation
 
@@ -46,7 +46,7 @@ function AzureAssessment {
     Write-Host("Gathering Disk Info - Managed Disk")
     Get-AzDisk | Export-Csv -Path .\Diskinfo.csv -NoTypeInformation
 
-    if ($assessUnmanaged -eq $true) {
+    if ($AssessUnmanaged -eq $true) {
         Write-Host("Scanning Storage Accounts for unmanaged Disks")
         $storageAccounts = Get-AzStorageAccount
         foreach ($storageAccount in $storageAccounts) {
@@ -125,7 +125,7 @@ function AzureAssessment {
         $report | Export-CSV "$reportName" -NoTypeInformation
     }
     # Backup assessment
-    if ($backupAssessment -eq $true) {
+    if ($BackupAssessment -eq $true) {
         Write-Host("Gathering Backup Info, this can take a while")
         $vaults = Get-AzRecoveryServicesVault
         foreach ($item in $vaults) {
