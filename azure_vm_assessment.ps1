@@ -6,10 +6,10 @@
     for a performant and future-proof way to gather VM specifications, OS details, and disk configurations.
     Produces a single CSV file per subscription.
 .EXAMPLE
-    # In Azure Cloud Shell, save this script to a file (e.g., azure_vm_assessment_final.ps1)
+    # In Azure Cloud Shell, save this script to a file (e.g., azure_vm_assessment.ps1)
     # and then run it directly:
     #
-    # .\azure_vm_assessment_final.ps1
+    # .\azure_vm_assessment.ps1
 #>
 [CmdletBinding()]
 param()
