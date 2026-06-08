@@ -84,7 +84,7 @@ function AzureAssessment {
     }
 
     if ($Anonymise) {
-        Write-Host "Anonymise mode enabled — sensitive fields will be SHA256-hashed in all output." -ForegroundColor Yellow
+        Write-Host "Anonymise mode enabled - sensitive fields will be SHA256-hashed in all output." -ForegroundColor Yellow
     }
 
     # Expose anonymise flag to the Mask helper
@@ -110,7 +110,7 @@ function AzureAssessment {
         $outputDir = ".\AzureAssessment_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
         New-Item -ItemType Directory -Path $outputDir | Out-Null
 
-        # Subscriptions — mask name and tenant ID
+        # Subscriptions - mask name and tenant ID
         $subscriptions | Select-Object Id, @{N='Name';E={Mask $_.Name}}, State, @{N='TenantId';E={Mask $_.TenantId}} |
             Export-Csv -Path "$outputDir\subscriptions.csv" -NoTypeInformation
 
@@ -266,8 +266,4 @@ function AzureAssessment {
     }
 }
 
-try {
-    AzureAssessment -BackupAssessment $BackupAssessment -Anonymise:$Anonymise
-} catch {
-    Write-Error "Error executing the AzureAssessment function: $_"
-}
+AzureAssessment -BackupAssessment $BackupAssessment -Anonymise:$Anonymise
