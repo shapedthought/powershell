@@ -133,7 +133,9 @@ function AzureAssessment {
 
                 Write-Host "  Gathering Disk Info - Managed Disks" -ForegroundColor Cyan
                 $disks = @(Get-AzDisk -ErrorAction SilentlyContinue)
-                $allDisks += $disks | Select-Object @{N='Name';E={Mask $_.Name}}, @{N='ResourceGroupName';E={Mask $_.ResourceGroupName}}, Location, DiskSizeGB, Sku, OsType, DiskState
+                # $allDisks += $disks | Select-Object @{N='Name';E={Mask $_.Name}}, @{N='ResourceGroupName';E={Mask $_.ResourceGroupName}}, Location, DiskSizeGB, Sku, OsType, DiskState
+                # Edit 16-06-26 - EDX
+                $allDisks += $disks | Select-Object @{N='Name';E={Mask $_.Name}}, @{N='ResourceGroupName';E={Mask $_.ResourceGroupName}}, Location, DiskSizeGB, @{N='Sku';E={$_.Sku.Name}}, OsType, DiskState
 
                 # VM inventory
                 Write-Host "  Gathering VM Info" -ForegroundColor Cyan
