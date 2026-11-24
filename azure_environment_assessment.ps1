@@ -257,7 +257,7 @@ $script:OutputSchemas = [ordered]@{
         'PolicyName', 'ProtectionState', 'LastBackupStatus', 'LatestRecoveryPoint')
     backup_policies       = @('VaultType', 'VaultName', 'PolicyName', 'WorkloadType', 'Schedule', 'Retention')
     backup_jobs           = @('VaultType', 'VaultName', 'JobId', 'Operation', 'Status', 'WorkloadName', 'StartTime', 'EndTime', 'DurationMinutes')
-    backup_coverage       = @('NativeBackup', 'VaultName', 'PolicyName')
+    backup_coverage       = @('NativeBackup', 'VaultName', 'PolicyName', 'ProtectionState')
 }
 
 # Outputs that do not start with the placement columns.
@@ -266,12 +266,15 @@ $script:PlainSchemas = [ordered]@{
     network_attachments     = @('ResourceKey', 'AttachmentType', 'IsPrimary', 'VNetSubscriptionId', 'VNetResourceGroup', 'VNetName',
         'SubnetName', 'SubnetPrefix', 'PrivateIpAddress', 'PrivateEndpointName', 'GroupId')
     environment_summary     = @('SubscriptionId', 'SubscriptionName', 'Region', 'VNetSubscriptionId', 'VNetResourceGroup', 'VNetName',
-        'NetworkAccessMix', 'VMs', 'VM_Provisioned_GiB', 'SqlDatabases', 'SqlDb_Used_GiB', 'SqlManagedInstances', 'SqlMi_Used_GiB',
-        'CosmosAccounts', 'Cosmos_Data_GiB', 'FileShares', 'FileShare_Used_GiB', 'StorageAccounts', 'Storage_Blob_GiB',
-        'AksClusters', 'AksNodes', 'AvsPrivateClouds', 'AvsHosts', 'WorkerCapableSubnets')
-    region_summary          = @('Region', 'Subscriptions', 'VNets', 'VMs', 'VM_Provisioned_GiB', 'SqlDatabases', 'SqlDb_Used_GiB',
-        'SqlManagedInstances', 'SqlMi_Used_GiB', 'CosmosAccounts', 'Cosmos_Data_GiB', 'FileShares', 'FileShare_Used_GiB',
-        'StorageAccounts', 'Storage_Blob_GiB', 'AksClusters', 'AksNodes', 'AvsPrivateClouds', 'AvsHosts', 'WorkerCapableSubnets', 'HasWorkerCapableSubnet')
+        'NetworkAccessMix', 'VMs', 'VM_Provisioned_GiB', 'VmCapacityComplete', 'SqlDatabases', 'SqlDb_Used_GiB', 'SqlDbCapacityComplete',
+        'SqlManagedInstances', 'SqlMi_Used_GiB', 'SqlMiCapacityComplete', 'CosmosAccounts', 'Cosmos_Data_GiB', 'CosmosCapacityComplete',
+        'FileShares', 'FileShare_Used_GiB', 'FileShareCapacityComplete', 'StorageAccounts', 'Storage_Blob_GiB', 'StorageCapacityComplete',
+        'AksClusters', 'AksNodes', 'AksCapacityComplete', 'AvsPrivateClouds', 'AvsHosts', 'AvsCapacityComplete', 'WorkerCapableSubnets')
+    region_summary          = @('Region', 'Subscriptions', 'VNets', 'VMs', 'VM_Provisioned_GiB', 'VmCapacityComplete', 'SqlDatabases',
+        'SqlDb_Used_GiB', 'SqlDbCapacityComplete', 'SqlManagedInstances', 'SqlMi_Used_GiB', 'SqlMiCapacityComplete', 'CosmosAccounts',
+        'Cosmos_Data_GiB', 'CosmosCapacityComplete', 'FileShares', 'FileShare_Used_GiB', 'FileShareCapacityComplete', 'StorageAccounts',
+        'Storage_Blob_GiB', 'StorageCapacityComplete', 'AksClusters', 'AksNodes', 'AksCapacityComplete', 'AvsPrivateClouds', 'AvsHosts',
+        'AvsCapacityComplete', 'WorkerCapableSubnets', 'HasWorkerCapableSubnet')
     errors                  = @('Timestamp', 'SubscriptionId', 'Module', 'ResourceKey', 'Operation', 'Message')
 }
 
@@ -279,14 +282,14 @@ $script:OutputOrder = @($script:OutputSchemas.Keys) + @($script:PlainSchemas.Key
 
 # Workload outputs that feed the summaries: count column, capacity column, source column.
 $script:SummarySources = [ordered]@{
-    vms                   = @{ Count = 'VMs'; Size = 'VM_Provisioned_GiB'; Column = 'TotalProvisioned_GiB'; Unit = 'GiB' }
-    sql_databases         = @{ Count = 'SqlDatabases'; Size = 'SqlDb_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB' }
-    sql_managed_instances = @{ Count = 'SqlManagedInstances'; Size = 'SqlMi_Used_GiB'; Column = 'StorageUsed_GiB'; Unit = 'GiB' }
-    cosmos_accounts       = @{ Count = 'CosmosAccounts'; Size = 'Cosmos_Data_GiB'; Column = 'DataUsage_GiB'; Unit = 'GiB' }
-    file_shares           = @{ Count = 'FileShares'; Size = 'FileShare_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB' }
-    storage_accounts      = @{ Count = 'StorageAccounts'; Size = 'Storage_Blob_GiB'; Column = 'BlobCapacity_GiB'; Unit = 'GiB' }
-    aks_clusters          = @{ Count = 'AksClusters'; Size = 'AksNodes'; Column = 'TotalNodeCount'; Unit = 'Nodes' }
-    avs_private_clouds    = @{ Count = 'AvsPrivateClouds'; Size = 'AvsHosts'; Column = 'TotalHosts'; Unit = 'Hosts' }
+    vms                   = @{ Count = 'VMs'; Size = 'VM_Provisioned_GiB'; Column = 'TotalProvisioned_GiB'; Unit = 'GiB'; Complete = 'VmCapacityComplete' }
+    sql_databases         = @{ Count = 'SqlDatabases'; Size = 'SqlDb_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB'; Complete = 'SqlDbCapacityComplete' }
+    sql_managed_instances = @{ Count = 'SqlManagedInstances'; Size = 'SqlMi_Used_GiB'; Column = 'StorageUsed_GiB'; Unit = 'GiB'; Complete = 'SqlMiCapacityComplete' }
+    cosmos_accounts       = @{ Count = 'CosmosAccounts'; Size = 'Cosmos_Data_GiB'; Column = 'DataUsage_GiB'; Unit = 'GiB'; Complete = 'CosmosCapacityComplete' }
+    file_shares           = @{ Count = 'FileShares'; Size = 'FileShare_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB'; Complete = 'FileShareCapacityComplete' }
+    storage_accounts      = @{ Count = 'StorageAccounts'; Size = 'Storage_Blob_GiB'; Column = 'BlobCapacity_GiB'; Unit = 'GiB'; Complete = 'StorageCapacityComplete' }
+    aks_clusters          = @{ Count = 'AksClusters'; Size = 'AksNodes'; Column = 'TotalNodeCount'; Unit = 'Nodes'; Complete = 'AksCapacityComplete' }
+    avs_private_clouds    = @{ Count = 'AvsPrivateClouds'; Size = 'AvsHosts'; Column = 'TotalHosts'; Unit = 'Hosts'; Complete = 'AvsCapacityComplete' }
 }
 # Azure SQL and Cosmos DB have automatic platform backups when no vault covers them.
 $script:PlatformBackupOutputs = @('sql_databases', 'sql_managed_instances', 'cosmos_accounts')
@@ -386,7 +389,8 @@ function ConvertFrom-ResourceId {
     $parts = $ResourceId.Trim('/').Split('/')
     for ($i = 0; $i -lt $parts.Count - 1; $i += 2) {
         $key = $parts[$i].ToLowerInvariant()
-        if ($key -eq 'providers') { $i--; continue }
+        # 'providers' is followed by the namespace, then type/name pairs: skip both and stay aligned.
+        if ($key -eq 'providers') { continue }
         if (-not $result.Segments.ContainsKey($key)) { $result.Segments[$key] = $parts[$i + 1] }
     }
     if ($result.Segments.ContainsKey('subscriptions')) { $result.SubscriptionId = $result.Segments['subscriptions'] }
@@ -771,6 +775,8 @@ function Initialize-AssessmentState {
         ResourceCache  = @{}
         StorageCache   = @{}
         Coverage       = @{}
+        CoverageIncomplete = @{}   # subscription id -> $true when backup discovery failed there
+        PeListingFailed = (New-List)  # subscriptions whose private endpoint listing failed or did not run
         TagNames       = @($TagNames | Where-Object { $_ })
         SkipMetrics    = [bool]$SkipMetrics
         TenantId       = ''
@@ -927,6 +933,9 @@ function Get-NetworkBackbone {
                 if ($null -eq $conn) { continue }
                 $target = ConvertTo-Lower ([string](Get-Prop $conn 'PrivateLinkServiceId'))
                 if (-not $target) { continue }
+                # Only an Approved connection makes the target reachable through this endpoint; pending,
+                # rejected or disconnected endpoints still consume subnet IPs (PeBySubnet above).
+                if ([string](Get-Prop $conn 'PrivateLinkServiceConnectionState.Status') -ne 'Approved') { continue }
                 $entry = @{ Id = $info.Id; Name = $info.Name; SubnetId = $subnetId; PrivateIp = $privateIp; GroupIds = @(Get-Prop $conn 'GroupIds') }
                 if (-not $script:State.PeByTarget.ContainsKey($target)) { $script:State.PeByTarget[$target] = New-List }
                 $script:State.PeByTarget[$target].Add($entry)
@@ -934,7 +943,10 @@ function Get-NetworkBackbone {
         }
         Write-Step ("    {0} private endpoint(s)" -f $pes.Count)
     }
-    catch { Add-ErrorRow -SubscriptionId $subId -Module 'vnet' -Operation 'Get-AzPrivateEndpoint' -Message $_.Exception.Message }
+    catch {
+        $script:State.PeListingFailed.Add($subId)
+        Add-ErrorRow -SubscriptionId $subId -Module 'vnet' -Operation 'Get-AzPrivateEndpoint' -Message $_.Exception.Message
+    }
 
     try {
         $pips = @(Invoke-WithRetry -Operation 'Get-AzPublicIpAddress' -ScriptBlock { Get-AzPublicIpAddress -ErrorAction Stop })
@@ -1726,10 +1738,13 @@ function Get-StorageAccountInventory {
             $rg = [string]$sa.ResourceGroupName
             $san = [string]$sa.StorageAccountName
             $kind = [string](Get-Prop $sa 'Kind')
+            # A FileStorage account has no blob service: its row is the Azure Files workload, placed on
+            # 'file' endpoints. Every other kind is the Blob workload, placed on 'blob' / 'dfs' endpoints.
+            $candidate = $script:WorkloadMap.blob; $groupFilter = @('blob', 'dfs')
+            if ($kind -eq 'FileStorage') { $candidate = $script:WorkloadMap.files; $groupFilter = @('file') }
             $rec = New-WorkloadRecord -Output 'storage_accounts' -Module 'blob' -ResourceId $saId -Subscription $Subscription -ResourceGroup $rg `
-                -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName $san -ResourceType 'Microsoft.Storage/storageAccounts' -Tags (Get-Prop $sa 'Tags') -Candidate $script:WorkloadMap.blob
-            # This row is the Blob workload: place it on 'blob' / 'dfs' (ADLS Gen2) endpoints only.
-            Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter @('blob', 'dfs')
+                -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName $san -ResourceType 'Microsoft.Storage/storageAccounts' -Tags (Get-Prop $sa 'Tags') -Candidate $candidate
+            Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter $groupFilter
             $hasBlob = ($kind -ne 'FileStorage')
             $hasFile = (@('StorageV2', 'Storage', 'FileStorage') -contains $kind)
             $c = $rec.Columns
@@ -1872,17 +1887,26 @@ function Get-AvsInventory {
             $rec = New-WorkloadRecord -Output 'avs_private_clouds' -Module 'avs' -ResourceId $pid_ -Subscription $Subscription -ResourceGroup $rg `
                 -Region $pc.Location -ResourceName $name -ResourceType 'Microsoft.AVS/privateClouds' -Tags (Get-Prop $pc 'Tag', 'Tags') -Candidate $script:WorkloadMap.avs
             $rec.Net.VNetInjected = $true
+            # Hosts per cluster come from ONE listing (Get-AzVMwareCluster). Whether that listing includes
+            # the management cluster is not certain, so the private cloud's management cluster size is
+            # added only when its cluster ID is known and absent from the listing, or when the listing is
+            # empty or failed (fallback). This avoids double counting either way.
             $names = New-List; $hosts = New-List; $total = 0
             $mgmt = Get-Prop $pc 'ManagementClusterSize', 'ManagementCluster.ClusterSize'
-            if ($null -ne $mgmt) { $names.Add('(management)'); $hosts.Add([string]$mgmt); $total += [int]$mgmt }
-            try {
-                foreach ($cl in @(Invoke-WithRetry -Operation 'Get-AzVMwareCluster' -ScriptBlock { Get-AzVMwareCluster -PrivateCloudName $name -ResourceGroupName $rg -ErrorAction Stop })) {
-                    $size = Get-Prop $cl 'ClusterSize', 'Size'
-                    $names.Add([string]$cl.Name); $hosts.Add([string]$size)
-                    if ($null -ne $size) { $total += [int]$size }
-                }
+            $mgmtId = [string](Get-Prop $pc 'ManagementClusterId', 'ManagementCluster.ClusterId')
+            $listed = @()
+            $listingOk = $true
+            try { $listed = @(Invoke-WithRetry -Operation 'Get-AzVMwareCluster' -ScriptBlock { Get-AzVMwareCluster -PrivateCloudName $name -ResourceGroupName $rg -ErrorAction Stop }) }
+            catch { $listingOk = $false; Add-ErrorRow -SubscriptionId $subId -Module 'avs' -ResourceKey $pid_ -Operation 'Get-AzVMwareCluster' -Message $_.Exception.Message }
+            $mgmtListed = $false
+            foreach ($cl in $listed) { if ($mgmtId -and [string](Get-Prop $cl 'ClusterId') -eq $mgmtId) { $mgmtListed = $true } }
+            $addMgmt = ($null -ne $mgmt) -and ((-not $listingOk) -or $listed.Count -eq 0 -or ($mgmtId -and -not $mgmtListed))
+            if ($addMgmt) { $names.Add('(management)'); $hosts.Add([string]$mgmt); $total += [int]$mgmt }
+            foreach ($cl in $listed) {
+                $size = Get-Prop $cl 'ClusterSize', 'Size'
+                $names.Add([string]$cl.Name); $hosts.Add([string]$size)
+                if ($null -ne $size) { $total += [int]$size }
             }
-            catch { Add-ErrorRow -SubscriptionId $subId -Module 'avs' -ResourceKey $pid_ -Operation 'Get-AzVMwareCluster' -Message $_.Exception.Message }
             $gr = @()
             try { $gr = @(Invoke-WithRetry -Operation 'Get-AzVMwareGlobalReachConnection' -ScriptBlock { Get-AzVMwareGlobalReachConnection -PrivateCloudName $name -ResourceGroupName $rg -ErrorAction Stop }) }
             catch { Add-ErrorRow -SubscriptionId $subId -Module 'avs' -ResourceKey $pid_ -Operation 'Get-AzVMwareGlobalReachConnection' -Message $_.Exception.Message }
@@ -1913,7 +1937,11 @@ function Get-GraphCount {
     while ($uri) {
         $page = Invoke-WithRetry -Operation "Graph GET $RelativeUri" -ScriptBlock { Invoke-MgGraphRequest -Method GET -Uri $uri -ErrorAction Stop }
         $total += Get-Count (Get-Prop $page 'value')
-        $uri = [string](Get-Prop $page '@odata.nextLink')
+        # Literal key: Get-Prop splits paths on '.', which would never find '@odata.nextLink'.
+        $next = $null
+        if ($page -is [System.Collections.IDictionary]) { if ($page.Contains('@odata.nextLink')) { $next = $page['@odata.nextLink'] } }
+        elseif ($null -ne $page) { $np = $page.PSObject.Properties['@odata.nextLink']; if ($np) { $next = $np.Value } }
+        $uri = [string]$next
     }
     return $total
 }
@@ -1922,12 +1950,19 @@ function Get-EntraInventory {
     <# Tenant-level counts via Microsoft Graph GETs (read scopes only). #>
     param([string]$TenantId, [switch]$UseDeviceAuthentication)
     $records = New-List
+    if (-not $TenantId) { throw 'Assessed tenant ID is unknown; Entra counts not collected (they could not be attributed to a tenant).' }
+    # An existing Graph context may belong to a different tenant: reconnect to the assessed tenant, and
+    # refuse to label another tenant's data with this tenant's ID.
     $ctx = Get-MgContext
-    if (-not $ctx) {
-        $p = @{ Scopes = @('Directory.Read.All', 'Policy.Read.All'); ErrorAction = 'Stop' }
-        if ($TenantId) { $p.TenantId = $TenantId }
+    if (-not $ctx -or ([string](Get-Prop $ctx 'TenantId')) -ne $TenantId) {
+        if ($ctx) { Write-Step '    Graph context belongs to another tenant; reconnecting to the assessed tenant.' -Level Warning }
+        $p = @{ Scopes = @('Directory.Read.All', 'Policy.Read.All'); TenantId = $TenantId; ErrorAction = 'Stop' }
         if ($UseDeviceAuthentication) { $p.UseDeviceCode = $true }
         Connect-MgGraph @p | Out-Null
+        $ctx = Get-MgContext
+        if (-not $ctx -or ([string](Get-Prop $ctx 'TenantId')) -ne $TenantId) {
+            throw 'Microsoft Graph context is not for the assessed tenant after reconnecting; Entra counts not collected.'
+        }
     }
     $domain = ''
     try {
@@ -1987,10 +2022,15 @@ function Get-OtherResourceSummary {
 }
 
 function Add-CoverageEntry {
-    param([string]$Key, [string]$NativeBackup, [string]$VaultName, [string]$PolicyName)
+    param([string]$Key, [string]$NativeBackup, [string]$VaultName, [string]$PolicyName, [string]$ProtectionState)
     if (-not $Key) { return }
     if (-not $script:State.Coverage.ContainsKey($Key)) { $script:State.Coverage[$Key] = New-List }
-    $script:State.Coverage[$Key].Add(@{ NativeBackup = $NativeBackup; VaultName = $VaultName; PolicyName = $PolicyName })
+    $script:State.Coverage[$Key].Add(@{ NativeBackup = $NativeBackup; VaultName = $VaultName; PolicyName = $PolicyName; ProtectionState = $ProtectionState })
+}
+
+function Set-CoverageIncomplete {
+    param([string]$SubscriptionId)
+    $script:State.CoverageIncomplete[[string]$SubscriptionId] = $true
 }
 
 function Get-BackupInventory {
@@ -2002,7 +2042,7 @@ function Get-BackupInventory {
     if ($RecoveryServices) {
         $vaults = @()
         try { $vaults = @(Invoke-WithRetry -Operation 'Get-AzRecoveryServicesVault' -ScriptBlock { Get-AzRecoveryServicesVault -ErrorAction Stop }) }
-        catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -Operation 'Get-AzRecoveryServicesVault' -Message $_.Exception.Message }
+        catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -Operation 'Get-AzRecoveryServicesVault' -Message $_.Exception.Message }
         foreach ($v in $vaults) {
             $vid = [string](Get-Prop $v 'ID', 'Id')
             $vname = [string]$v.Name
@@ -2033,7 +2073,7 @@ function Get-BackupInventory {
                     try {
                         $items = @(Invoke-WithRetry -Operation "Get-AzRecoveryServicesBackupItem $wt" -ScriptBlock { Get-AzRecoveryServicesBackupItem -BackupManagementType $bmt -WorkloadType $wt -VaultId $vid -ErrorAction Stop })
                     }
-                    catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation "Get-AzRecoveryServicesBackupItem $wt" -Message $_.Exception.Message; continue }
+                    catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation "Get-AzRecoveryServicesBackupItem $wt" -Message $_.Exception.Message; continue }
                     foreach ($it in $items) {
                         $itemCount++
                         $src = [string](Get-Prop $it 'SourceResourceId')
@@ -2046,7 +2086,7 @@ function Get-BackupInventory {
                         $policy = [string](Get-Prop $it 'ProtectionPolicyName')
                         if ($protKey -and ($wt -eq 'AzureVM' -or $wt -eq 'AzureFiles')) {
                             $ck = ConvertTo-Lower $protKey
-                            Add-CoverageEntry -Key $ck -NativeBackup 'RecoveryServicesVault' -VaultName $vname -PolicyName $policy
+                            Add-CoverageEntry -Key $ck -NativeBackup 'RecoveryServicesVault' -VaultName $vname -PolicyName $policy -ProtectionState ([string](Get-Prop $it 'ProtectionState'))
                         }
                         $itemName = [string](Get-Prop $it 'Name')
                         $itemId = [string](Get-Prop $it 'Id')
@@ -2082,9 +2122,14 @@ function Get-BackupInventory {
                     $pc.Schedule = (($freq + ' ' + $times).Trim())
                     $rp = Get-Prop $p 'RetentionPolicy', 'FullBackupRetentionPolicy'
                     $ret = New-List
-                    foreach ($pair in @(@('D', 'DailySchedule.DurationCountInDays'), @('W', 'WeeklySchedule.DurationCountInWeeks'), @('M', 'MonthlySchedule.DurationCountInMonths'), @('Y', 'YearlySchedule.DurationCountInYears'))) {
-                        $val = Get-Prop $rp $pair[1]
-                        if ($null -ne $val -and (Get-Prop $rp ($pair[1].Split('.')[0] + '.Enabled', $pair[1].Split('.')[0])) ) { $ret.Add($pair[0] + ':' + $val) }
+                    foreach ($pair in @(@('D', 'Daily', 'DurationCountInDays'), @('W', 'Weekly', 'DurationCountInWeeks'), @('M', 'Monthly', 'DurationCountInMonths'), @('Y', 'Yearly', 'DurationCountInYears'))) {
+                        $sched = $pair[1] + 'Schedule'
+                        $val = Get-Prop $rp ($sched + '.' + $pair[2])
+                        if ($null -eq $val) { continue }
+                        # Respect disabled schedules (Is<X>ScheduleEnabled = false); absent flag = enabled.
+                        $enabledFlag = Get-Prop $rp ('Is' + $pair[1] + 'ScheduleEnabled')
+                        if ($null -ne $enabledFlag -and -not [bool]$enabledFlag) { continue }
+                        $ret.Add($pair[0] + ':' + $val)
                     }
                     $pc.Retention = $ret -join ';'
                     $records.Add($prec)
@@ -2110,13 +2155,13 @@ function Get-BackupInventory {
                 catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation 'Get-AzRecoveryServicesBackupJob' -Message $_.Exception.Message }
                 $records.Add($vrec)
             }
-            catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation 'ProcessRecoveryServicesVault' -Message $_.Exception.Message }
+            catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation 'ProcessRecoveryServicesVault' -Message $_.Exception.Message }
         }
     }
     if ($DataProtection) {
         $bvs = @()
         try { $bvs = @(Invoke-WithRetry -Operation 'Get-AzDataProtectionBackupVault' -ScriptBlock { Get-AzDataProtectionBackupVault -SubscriptionId $subId -ErrorAction Stop }) }
-        catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -Operation 'Get-AzDataProtectionBackupVault' -Message $_.Exception.Message }
+        catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -Operation 'Get-AzDataProtectionBackupVault' -Message $_.Exception.Message }
         foreach ($bv in $bvs) {
             $bid = [string]$bv.Id
             $bname = [string]$bv.Name
@@ -2149,13 +2194,13 @@ function Get-BackupInventory {
                 }
                 $instances = @()
                 try { $instances = @(Invoke-WithRetry -Operation 'Get-AzDataProtectionBackupInstance' -ScriptBlock { Get-AzDataProtectionBackupInstance -ResourceGroupName $brg -VaultName $bname -ErrorAction Stop }) }
-                catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $bid -Operation 'Get-AzDataProtectionBackupInstance' -Message $_.Exception.Message }
+                catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $bid -Operation 'Get-AzDataProtectionBackupInstance' -Message $_.Exception.Message }
                 foreach ($bi in $instances) {
                     $src = [string](Get-Prop $bi 'Property.DataSourceInfo.ResourceId')
                     $policyName = Get-NameFromId ([string](Get-Prop $bi 'Property.PolicyInfo.PolicyId'))
                     if ($src) {
                         $ck = ConvertTo-Lower $src
-                        Add-CoverageEntry -Key $ck -NativeBackup 'BackupVault' -VaultName $bname -PolicyName $policyName
+                        Add-CoverageEntry -Key $ck -NativeBackup 'BackupVault' -VaultName $bname -PolicyName $policyName -ProtectionState ([string](Get-Prop $bi 'Property.CurrentProtectionState'))
                     }
                     $biId = [string](Get-Prop $bi 'Id')
                     if (-not $biId) { $biId = $bid + '/backupInstances/' + [string]$bi.Name }
@@ -2177,7 +2222,7 @@ function Get-BackupInventory {
                 $vrec.Columns.PolicyCount = $policies.Count
                 $records.Add($vrec)
             }
-            catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $bid -Operation 'ProcessBackupVault' -Message $_.Exception.Message }
+            catch { Set-CoverageIncomplete $subId; Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $bid -Operation 'ProcessBackupVault' -Message $_.Exception.Message }
         }
     }
     return , $records
@@ -2320,6 +2365,12 @@ function Get-PlacementColumns {
     }
     $pl.PrivateEndpointCount = $peCount
     if ($net.ExplicitAccess) { $pl.NetworkAccess = $net.ExplicitAccess }
+    elseif ($net.PeTargetId -and $peCount -eq 0 -and -not $net.VNetInjected -and $net.HasSurface -and $script:State.PeListingFailed.Count -gt 0) {
+        # Private endpoint listing failed somewhere: an endpoint may exist that we could not see, so do
+        # not report a confident (and possibly wrong) access mode or a zero count.
+        $pl.NetworkAccess = 'Unknown'
+        $pl.PrivateEndpointCount = ''
+    }
     else {
         $pl.NetworkAccess = Resolve-NetworkAccess -HasNetworkSurface $net.HasSurface -VNetInjected $net.VNetInjected -PrivateEndpointCount $peCount `
             -PublicNetworkAccess $net.PublicNetworkAccess -DefaultAction $net.DefaultAction -VNetRuleCount $net.VNetRuleSubnetIds.Count -IpRuleCount $net.IpRuleCount
@@ -2375,15 +2426,19 @@ function Add-BackupCoverage {
             foreach ($t in (Get-TagColumnNames)) { $r[$t] = $row.$t }
             if ($cov) {
                 # Both vault types may cover one resource: list each, joined with ";".
-                $types = New-List; $vaults = New-List; $pols = New-List
+                $types = New-List; $vaults = New-List; $pols = New-List; $states = New-List
                 foreach ($c in $cov) {
                     if (-not $types.Contains($c.NativeBackup)) { $types.Add($c.NativeBackup) }
-                    $vaults.Add($c.VaultName); $pols.Add($c.PolicyName)
+                    $vaults.Add($c.VaultName); $pols.Add($c.PolicyName); $states.Add([string]$c.ProtectionState)
                 }
-                $r.NativeBackup = $types -join ';'; $r.VaultName = $vaults -join ';'; $r.PolicyName = $pols -join ';'
+                $r.NativeBackup = $types -join ';'; $r.VaultName = $vaults -join ';'; $r.PolicyName = $pols -join ';'; $r.ProtectionState = $states -join ';'
             }
-            elseif ($script:PlatformBackupOutputs -contains $out) { $r.NativeBackup = 'PlatformBuiltIn'; $r.VaultName = ''; $r.PolicyName = '' }
-            else { $r.NativeBackup = 'None'; $r.VaultName = ''; $r.PolicyName = '' }
+            elseif ($script:PlatformBackupOutputs -contains $out) { $r.NativeBackup = 'PlatformBuiltIn'; $r.VaultName = ''; $r.PolicyName = ''; $r.ProtectionState = '' }
+            elseif ($script:State.CoverageIncomplete.ContainsKey([string]$row.SubscriptionId)) {
+                # Vault discovery failed (or a backup module was missing) for this subscription: we cannot claim None.
+                $r.NativeBackup = 'Unknown'; $r.VaultName = ''; $r.PolicyName = ''; $r.ProtectionState = ''
+            }
+            else { $r.NativeBackup = 'None'; $r.VaultName = ''; $r.PolicyName = ''; $r.ProtectionState = '' }
             $script:State.Outputs['backup_coverage'].Add([pscustomobject]$r)
         }
     }
@@ -2436,9 +2491,24 @@ function New-SummaryCounters {
     $h = [ordered]@{}
     foreach ($src in $script:SummarySources.Values) {
         $h[$src.Count] = 0
-        if ($src.Size) { $h[$src.Size] = 0.0 }
+        $h[$src.Size] = 0.0
+        $h['__known_' + $src.Size] = 0
     }
     return $h
+}
+
+function Add-SummaryCounters {
+    <# Copies counters into a summary row: capacity is blank when no value in the bucket is known, and
+       <Module>CapacityComplete says whether every resource in the bucket had a value. #>
+    param($Row, $Counters)
+    foreach ($src in $script:SummarySources.Values) {
+        $n = $Counters[$src.Count]
+        $known = $Counters['__known_' + $src.Size]
+        $Row[$src.Count] = $n
+        if ($n -gt 0 -and $known -eq 0) { $Row[$src.Size] = '' }
+        else { $Row[$src.Size] = [math]::Round($Counters[$src.Size], 2) }
+        $Row[$src.Complete] = ($known -eq $n)
+    }
 }
 
 function Build-Summaries {
@@ -2467,7 +2537,7 @@ function Build-Summaries {
             $e.Counters[$src.Count]++
             $size = $null
             if ($src.Column) { $size = $row.($src.Column) }
-            if ($src.Size -and $null -ne $size -and [string]$size -ne '') { $e.Counters[$src.Size] += [double]$size }
+            if ($null -ne $size -and [string]$size -ne '') { $e.Counters[$src.Size] += [double]$size; $e.Counters['__known_' + $src.Size]++ }
 
             $rk = [string]$row.Region
             if (-not $regionData.ContainsKey($rk)) { $regionData[$rk] = @{ Subs = @{}; VNets = @{}; Counters = (New-SummaryCounters) }; $regionOrder.Add($rk) }
@@ -2475,7 +2545,7 @@ function Build-Summaries {
             $rd.Subs[[string]$row.SubscriptionId] = $true
             if ($vnetName -ne '(none)') { $rd.VNets[($row.VNetSubscriptionId + '|' + $row.VNetResourceGroup + '|' + $vnetName).ToLowerInvariant()] = $true }
             $rd.Counters[$src.Count]++
-            if ($src.Size -and $null -ne $size -and [string]$size -ne '') { $rd.Counters[$src.Size] += [double]$size }
+            if ($null -ne $size -and [string]$size -ne '') { $rd.Counters[$src.Size] += [double]$size; $rd.Counters['__known_' + $src.Size]++ }
         }
     }
     foreach ($k in $envOrder) {
@@ -2483,7 +2553,7 @@ function Build-Summaries {
         $r = [ordered]@{}
         foreach ($h in $e.Head.Keys) { $r[$h] = $e.Head[$h] }
         $r.NetworkAccessMix = (@($e.Mix.Keys | ForEach-Object { '{0}:{1}' -f $_, $e.Mix[$_] }) -join ';')
-        foreach ($c in $e.Counters.Keys) { if ($c -like '*_GiB') { $r[$c] = [math]::Round($e.Counters[$c], 2) } else { $r[$c] = $e.Counters[$c] } }
+        Add-SummaryCounters -Row $r -Counters $e.Counters
         $wc = 0
         if ($e.Head.VNetName -ne '(none)') {
             $vk = ($e.Head.VNetSubscriptionId + '|' + $e.Head.VNetResourceGroup + '|' + $e.Head.VNetName).ToLowerInvariant()
@@ -2496,7 +2566,7 @@ function Build-Summaries {
     foreach ($rk in $regionOrder) {
         $rd = $regionData[$rk]
         $r = [ordered]@{ Region = $rk; Subscriptions = $rd.Subs.Count; VNets = $rd.VNets.Count }
-        foreach ($c in $rd.Counters.Keys) { if ($c -like '*_GiB') { $r[$c] = [math]::Round($rd.Counters[$c], 2) } else { $r[$c] = $rd.Counters[$c] } }
+        Add-SummaryCounters -Row $r -Counters $rd.Counters
         $wc = 0
         if ($worker.ByRegion.ContainsKey($rk)) { $wc = $worker.ByRegion[$rk] }
         $r.WorkerCapableSubnets = $wc
@@ -2573,10 +2643,10 @@ function Export-AssessmentFiles {
         $rows = $script:State.Outputs[$k]
         if ($k -eq 'errors') { $rows = $script:State.Errors }
         if ($rows.Count -eq 0) {
-            ('"' + ($cols -join '","') + '"') | Set-Content -Path $file -Encoding UTF8
+            ('"' + ($cols -join '","') + '"') | Set-Content -Path $file -Encoding UTF8 -ErrorAction Stop
         }
         else {
-            $rows | Select-Object -Property $cols | Export-Csv -Path $file -NoTypeInformation -Encoding UTF8
+            $rows | Select-Object -Property $cols | Export-Csv -Path $file -NoTypeInformation -Encoding UTF8 -ErrorAction Stop
         }
         $counts.Add([pscustomobject]@{ File = ($k + '.csv'); Rows = $rows.Count })
     }
@@ -2666,6 +2736,9 @@ function Invoke-AzureEnvironmentAssessment {
 
     Initialize-Anonymiser -Enabled:$Anonymise -Salt $AnonymiseSalt
     if ($Anonymise -and $AnonymiseSalt) { Write-Step 'Anonymisation on with a supplied salt: runs with the same salt can be correlated.' -Level Info }
+    # Az/Graph cmdlets write their own warnings, which can embed resource names: silence them while
+    # anonymising (this script's own console output only prints masked values or allowlisted text).
+    if ($Anonymise) { $WarningPreference = 'SilentlyContinue' }
 
     $processed = New-List; $skipped = New-List
     $originalContext = $null
@@ -2745,8 +2818,10 @@ function Invoke-AzureEnvironmentAssessment {
                         continue
                     }
                     Add-ErrorRow -SubscriptionId $s.Id -Module 'vnet' -Operation 'Get-AzVirtualNetwork' -Message $_.Exception.Message
+                    $script:State.PeListingFailed.Add([string]$s.Id)
                 }
             }
+            else { $script:State.PeListingFailed.Add([string]$s.Id) }
             $readable.Add($s)
         }
         if ($vnetEnabled) {
@@ -2783,6 +2858,7 @@ function Invoke-AzureEnvironmentAssessment {
                     Write-Step ("    module {0} skipped for this subscription" -f $m) -Level Warning
                 }
             }
+            if ($BackupAssessment -and -not ($hasRsv -and $hasDpp)) { Set-CoverageIncomplete $s.Id }
             if ($BackupAssessment -and ($hasRsv -or $hasDpp)) {
                 $mw = [System.Diagnostics.Stopwatch]::StartNew()
                 try {
@@ -2790,7 +2866,7 @@ function Invoke-AzureEnvironmentAssessment {
                     $subRead[[string]$s.Id] = $true
                     Write-Step ("    backup assessment done in {0:n1}s" -f $mw.Elapsed.TotalSeconds) -Level Success
                 }
-                catch { Add-ErrorRow -SubscriptionId $s.Id -Module 'backup' -Operation 'Get-BackupInventory' -Message $_.Exception.Message }
+                catch { Set-CoverageIncomplete $s.Id; Add-ErrorRow -SubscriptionId $s.Id -Module 'backup' -Operation 'Get-BackupInventory' -Message $_.Exception.Message }
             }
             Write-Step ("  subscription done in {0:n1}s" -f $subWatch.Elapsed.TotalSeconds) -Level Success
         }
@@ -2816,8 +2892,10 @@ function Invoke-AzureEnvironmentAssessment {
         if ($BackupAssessment) { Add-BackupCoverage }
     }
     catch {
+        # Run-level failure (sign-in, subscription listing, ...): still write diagnostics, but exit non-zero.
+        $script:ExitCode = 1
         Add-ErrorRow -Module 'main' -Operation 'Run' -Message $_.Exception.Message
-        Write-Step ('Run stopped early: ' + $_.Exception.Message + ' -- writing what was collected.') -Level Warning
+        Write-Step ('Run stopped early: ' + (Protect-Message $_.Exception.Message) + ' -- writing what was collected.') -Level Warning
     }
     finally {
         if ($originalContext) {
@@ -2827,24 +2905,58 @@ function Invoke-AzureEnvironmentAssessment {
     }
 
     # --- Anonymise, summarise, export --------------------------------------------------------------------
-    try { Invoke-OutputMasking } catch { Add-ErrorRow -Module 'main' -Operation 'Anonymise' -Message $_.Exception.Message }
+    # With -Anonymise, every row (including errors.csv) is masked BEFORE anything is written. If masking
+    # fails, no data is written: only a manifest that records the failure, and the exit code is non-zero.
+    try { Invoke-OutputMasking }
+    catch {
+        if ($script:AnonymiseEnabled) {
+            $script:ExitCode = 1
+            Write-Step 'Anonymisation failed; no data was written.' -Level Error
+            try {
+                if (-not (Test-Path -Path $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop | Out-Null }
+                $failed = [ordered]@{
+                    ScriptVersion = $script:ScriptVersion; StartTimeUtc = $runStart.ToUniversalTime().ToString('o'); EndTimeUtc = (Get-Date).ToUniversalTime().ToString('o')
+                    Status = 'Failed: anonymisation error; no data written'; Anonymised = $true
+                }
+                ConvertTo-Json -InputObject $failed | Set-Content -Path (Join-Path $OutputPath 'manifest.json') -Encoding UTF8 -ErrorAction Stop
+            }
+            catch { Write-Step 'Could not write the failure manifest either.' -Level Error }
+            return
+        }
+        Add-ErrorRow -Module 'main' -Operation 'Anonymise' -Message $_.Exception.Message
+    }
     try { Build-Summaries } catch { Add-ErrorRow -Module 'main' -Operation 'Summaries' -Message $_.Exception.Message }
     $map = $null
     try { $map = Build-EnvironmentMap } catch { Add-ErrorRow -Module 'main' -Operation 'EnvironmentMap' -Message $_.Exception.Message }
-
-    if (-not (Test-Path -Path $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null }
+    $json = $null
     if ($null -ne $map) {
         $jsonWarnings = $null
         $json = ConvertTo-Json -InputObject $map -Depth 10 -WarningVariable jsonWarnings -WarningAction SilentlyContinue
         if ($jsonWarnings) { Add-ErrorRow -Module 'main' -Operation 'environment_map.json' -Message 'ConvertTo-Json depth 10 exceeded; output truncated.' }
-        $json | Set-Content -Path (Join-Path $OutputPath 'environment_map.json') -Encoding UTF8
     }
-    # Errors are masked last, so rows logged during summaries are covered too.
+    # Errors are masked last (rows logged during summaries are covered too) and still before any write.
     if ($script:AnonymiseEnabled) {
-        $errs = $script:State.Errors
-        for ($i = 0; $i -lt $errs.Count; $i++) { $errs[$i] = ConvertTo-MaskedRow $errs[$i] }
+        try {
+            $errs = $script:State.Errors
+            for ($i = 0; $i -lt $errs.Count; $i++) { $errs[$i] = ConvertTo-MaskedRow $errs[$i] }
+        }
+        catch {
+            $script:ExitCode = 1
+            Write-Step 'Anonymisation of errors.csv failed; no data was written.' -Level Error
+            return
+        }
     }
-    $counts = Export-AssessmentFiles -Path $OutputPath
+    try {
+        if (-not (Test-Path -Path $OutputPath)) { New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop | Out-Null }
+        if ($null -ne $json) { $json | Set-Content -Path (Join-Path $OutputPath 'environment_map.json') -Encoding UTF8 -ErrorAction Stop }
+        $counts = Export-AssessmentFiles -Path $OutputPath
+    }
+    catch {
+        # A failed write fails the run.
+        $script:ExitCode = 1
+        Write-Step ('Writing output failed: ' + (Protect-Message $_.Exception.Message)) -Level Error
+        return
+    }
 
     $boundParams = [ordered]@{}
     foreach ($k in $PSBoundParameters.Keys) {
@@ -2870,13 +2982,17 @@ function Invoke-AzureEnvironmentAssessment {
         ModulesDisabled        = $disabled.ToArray()
         SubscriptionsProcessed = $processed.ToArray()
         SubscriptionsSkipped   = $skippedOut.ToArray()
+        BackboneComplete       = ($script:State.PeListingFailed.Count -eq 0)
+        PrivateEndpointListingFailed = $script:State.PeListingFailed.ToArray()
+        ExitCode               = $script:ExitCode
         Anonymised             = [bool]$Anonymise
         ErrorCount             = $script:State.Errors.Count
     }
-    ConvertTo-Json -InputObject $manifest -Depth 5 | Set-Content -Path (Join-Path $OutputPath 'manifest.json') -Encoding UTF8
+    try { ConvertTo-Json -InputObject $manifest -Depth 5 | Set-Content -Path (Join-Path $OutputPath 'manifest.json') -Encoding UTF8 -ErrorAction Stop }
+    catch { $script:ExitCode = 1; Write-Step ('Writing manifest.json failed: ' + (Protect-Message $_.Exception.Message)) -Level Error; return }
 
     Write-Host ''
-    Write-Step ("Output written to {0}" -f $OutputPath) -Level Success
+    Write-Step ("Output written to {0}" -f (Protect-OutputPath $OutputPath)) -Level Success
     $counts | Format-Table -AutoSize | Out-String | Write-Host
     $byModule = @{}
     foreach ($e in $script:State.Errors) { $mk = [string]$e.Module; if ($byModule.ContainsKey($mk)) { $byModule[$mk]++ } else { $byModule[$mk] = 1 } }

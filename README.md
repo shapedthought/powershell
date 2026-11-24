@@ -43,6 +43,6 @@ Tests (Pester 5, no Azure connection, Az cmdlets mocked):
 Invoke-Pester -Path ./azure_environment_assessment.Tests.ps1 -Output Detailed
 ```
 
-NOTE: It passes its 21 mocked Pester tests but has not yet been run against a real Azure tenant. Test it on one subscription first and compare a few rows with the portal. A wrong Az property name shows up as a blank column, not an error. Requires the Az PowerShell module and Reader on each subscription.
+NOTE: It passes its 36 mocked Pester tests but has not yet been run against a real Azure tenant. Test it on one subscription first and compare a few rows with the portal. A wrong Az property name shows up as a blank column, not an error. Requires the Az PowerShell module and Reader on each subscription.
 
 This script has no association with Veeam.

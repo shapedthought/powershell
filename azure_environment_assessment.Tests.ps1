@@ -42,8 +42,10 @@ BeforeAll {
         'Get-MgContext' = ''; 'Connect-MgGraph' = '$Scopes, $TenantId, [switch]$UseDeviceCode'; 'Get-MgOrganization' = ''
         'Invoke-MgGraphRequest' = '$Method, $Uri'
     }
+    $script:StubNames = @($stubs.Keys)
     foreach ($name in $stubs.Keys) {
-        Invoke-Expression ("function global:{0} {{ [CmdletBinding()] param({1}) throw 'stub {0} was called without a mock' }}" -f $name, $stubs[$name])
+        # Script scope (not global): the stubs disappear with the test run and never shadow real Az/Graph cmdlets.
+        Invoke-Expression ("function script:{0} {{ [CmdletBinding()] param({1}) throw 'stub {0} was called without a mock' }}" -f $name, $stubs[$name])
     }
 
     # Dot-source: defines the functions without running the assessment.
@@ -58,7 +60,8 @@ BeforeAll {
     $hubVnet = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/virtualNetworks/vnet-hub"
     $spokeVnet = "/subscriptions/$S/resourceGroups/rg-spoke-net/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
     $snWorkers = "$hubVnet/subnets/snet-workers"; $snPe = "$hubVnet/subnets/snet-pe"; $snGw = "$hubVnet/subnets/GatewaySubnet"
-    $snMi = "$spokeVnet/subnets/snet-sqlmi"; $snWork = "$spokeVnet/subnets/snet-workloads"
+    $snMi = "$spokeVnet/subnets/snet-sqlmi"; $snWork = "$spokeVnet/subnets/snet-workloads"; $snPe2 = "$spokeVnet/subnets/snet-pe2"
+    $saFiles = "/subscriptions/$S/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stfiles01"
     $peNic2 = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/networkInterfaces/pe-kv.nic.0002"
     $pe2 = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/privateEndpoints/pe-kv"
     $kv = "/subscriptions/$H/resourceGroups/rg-hub-sec/providers/Microsoft.KeyVault/vaults/kv-hub"
@@ -79,6 +82,7 @@ BeforeAll {
     $cosG = "/subscriptions/$S/resourceGroups/rg-data/providers/Microsoft.DocumentDB/databaseAccounts/cosmos-gremlin"
 
     $global:Fake = @{
+        SaFiles = $saFiles; SnPe2 = $snPe2
         H = $H; S = $S; D = $D; T = $T; HubVnet = $hubVnet; Sa = $sa; SaLocked = $saLocked; Rsv = $rsv; Bv = $bv; Disk01 = $disk01; DiskOrphan = $diskOrphan
         RsvItem = "$rsv/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;rg-app;vm01/protectedItems/VM;iaasvmcontainerv2;rg-app;vm01"; Mi = $mi; Vm01 = $vm01; Vm02 = $vm02; CosP = $cosP; CosG = $cosG
         Subs = @(
@@ -103,6 +107,7 @@ BeforeAll {
                     VirtualNetworkPeerings = @(@{ Name = 'spoke-to-hub'; RemoteVirtualNetwork = @{ Id = $hubVnet }; PeeringState = 'Connected' })
                     Subnets = @(
                         [pscustomobject]@{ Id = $snMi; Name = 'snet-sqlmi'; AddressPrefix = @('10.1.0.0/24'); IpConfigurations = @(); Delegations = @(@{ ServiceName = 'Microsoft.Sql/managedInstances' }) }
+                        [pscustomobject]@{ Id = $snPe2; Name = 'snet-pe2'; AddressPrefix = @('10.1.2.0/29'); IpConfigurations = @(); Delegations = @() }
                         [pscustomobject]@{ Id = $snWork; Name = 'snet-workloads'; AddressPrefix = @('10.1.1.0/24'); IpConfigurations = @(@{ Id = "$nic01/ipConfigurations/ipconfig1" }); Delegations = @(); ServiceEndpoints = @(@{ Service = 'Microsoft.Storage' }) }
                     )
                 })
@@ -117,10 +122,13 @@ BeforeAll {
         }
         PEs = @{
             $H = @([pscustomobject]@{ Id = $pe; Name = 'pe-stspoke-blob'; Subnet = @{ Id = $snPe }; NetworkInterfaces = @(@{ Id = $peNic })
-                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $sa; GroupIds = @('blob') }) }
+                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $sa; GroupIds = @('blob'); PrivateLinkServiceConnectionState = @{ Status = 'Approved' } }) }
                 # Its NIC IP configuration is NOT listed in the subnet's IpConfigurations (UsedIPs de-dup test).
                 [pscustomobject]@{ Id = $pe2; Name = 'pe-kv'; Subnet = @{ Id = $snPe }; NetworkInterfaces = @(@{ Id = $peNic2 })
-                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $kv; GroupIds = @('vault') }) })
+                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $kv; GroupIds = @('vault'); PrivateLinkServiceConnectionState = @{ Status = 'Approved' } }) })
+            # A manual, still-Pending endpoint to stlocked01: it uses an IP in snet-pe2 but does not make the account reachable.
+            $S = @([pscustomobject]@{ Id = "/subscriptions/$S/resourceGroups/rg-spoke-net/providers/Microsoft.Network/privateEndpoints/pe-locked"; Name = 'pe-locked'; Subnet = @{ Id = $snPe2 }; NetworkInterfaces = @()
+                    PrivateLinkServiceConnections = @(); ManualPrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $saLocked; GroupIds = @('blob'); PrivateLinkServiceConnectionState = @{ Status = 'Pending' } }) })
         }
         VMs = @{
             $S = @(
@@ -145,6 +153,8 @@ BeforeAll {
             $S = @([pscustomobject]@{ Id = $sa; StorageAccountName = 'stspoke01'; ResourceGroupName = 'rg-data'; PrimaryLocation = 'westeurope'; Kind = 'StorageV2'
                     Sku = @{ Name = 'Standard_ZRS' }; AccessTier = 'Hot'; PublicNetworkAccess = 'Disabled'
                     NetworkRuleSet = @{ DefaultAction = 'Deny'; IpRules = @(); VirtualNetworkRules = @() }; Tags = @{ Environment = 'Prod' } }
+                [pscustomobject]@{ Id = $saFiles; StorageAccountName = 'stfiles01'; ResourceGroupName = 'rg-data'; PrimaryLocation = 'westeurope'; Kind = 'FileStorage'
+                    Sku = @{ Name = 'Premium_LRS' }; PublicNetworkAccess = 'Enabled'; NetworkRuleSet = @{ DefaultAction = 'Allow'; IpRules = @(); VirtualNetworkRules = @() } }
                 [pscustomobject]@{ Id = $saLocked; StorageAccountName = 'stlocked01'; ResourceGroupName = 'rg-data'; PrimaryLocation = 'westeurope'; Kind = 'BlockBlobStorage'
                     Sku = @{ Name = 'Premium_LRS' }; PublicNetworkAccess = 'Disabled'; NetworkRuleSet = @{ DefaultAction = 'Allow'; IpRules = @(); VirtualNetworkRules = @() } })
         }
@@ -172,7 +182,7 @@ BeforeAll {
         }
     }
 
-    function global:Get-FakeForSub { param([hashtable]$Map) $v = $Map[$global:FakeSub]; if ($null -ne $v) { $v } }
+    function script:Get-FakeForSub { param([hashtable]$Map) $v = $Map[$global:FakeSub]; if ($null -ne $v) { $v } }
 
     function Set-FakeMocks {
         Mock Test-ModuleAvailable { $true }
@@ -216,7 +226,7 @@ BeforeAll {
                     ProtectionState = 'Protected'; LastBackupStatus = 'Completed'; LatestRecoveryPoint = [datetime]'2026-11-23T22:00:00Z' }
             }
         }
-        Mock Get-AzRecoveryServicesBackupProtectionPolicy { [pscustomobject]@{ Id = "$($global:Fake.Rsv)/backupPolicies/DefaultPolicy"; Name = 'DefaultPolicy'; WorkloadType = 'AzureVM'; SchedulePolicy = @{ ScheduleRunFrequency = 'Daily'; ScheduleRunTimes = @([datetime]'2026-01-01T22:00:00') }; RetentionPolicy = @{ DailySchedule = @{ DurationCountInDays = 30 } } } }
+        Mock Get-AzRecoveryServicesBackupProtectionPolicy { [pscustomobject]@{ Id = "$($global:Fake.Rsv)/backupPolicies/DefaultPolicy"; Name = 'DefaultPolicy'; WorkloadType = 'AzureVM'; SchedulePolicy = @{ ScheduleRunFrequency = 'Daily'; ScheduleRunTimes = @([datetime]'2026-01-01T22:00:00') }; RetentionPolicy = @{ IsDailyScheduleEnabled = $true; DailySchedule = @{ DurationCountInDays = 30 }; IsWeeklyScheduleEnabled = $false; WeeklySchedule = @{ DurationCountInWeeks = 12 } } } }
         Mock Get-AzRecoveryServicesBackupJob { }
         Mock Get-AzDataProtectionBackupVault { if ($SubscriptionId -eq $global:Fake.S) { [pscustomobject]@{ Id = $global:Fake.Bv; Name = 'bv-spoke'; Location = 'westeurope' } } }
         Mock Get-AzDataProtectionBackupPolicy { }
@@ -446,6 +456,76 @@ Describe 'Azure environment assessment (mocked Az)' {
         $r.VaultName | Should -Be 'rsv;bv'
     }
 
+    It 'parses a subnet ID by key so names survive for a subnet outside the backbone' {
+        $id = '/subscriptions/99999999-9999-9999-9999-999999999999/resourceGroups/rg-far/providers/Microsoft.Network/virtualNetworks/vnet-far/subnets/snet-far'
+        $p = ConvertFrom-ResourceId $id
+        $p.SubscriptionId | Should -Be '99999999-9999-9999-9999-999999999999'
+        $p.ResourceGroup | Should -Be 'rg-far'
+        $p.Segments['virtualnetworks'] | Should -Be 'vnet-far'
+        $p.Segments['subnets'] | Should -Be 'snet-far'
+        $rec = [pscustomobject]@{ SubscriptionId = 'x'; Module = 'test'; ResourceId = 'r' }
+        $info = Resolve-SubnetInfo -SubnetId $id -Record $rec 6>$null
+        $info.VNetName | Should -Be 'vnet-far'
+        $info.SubnetName | Should -Be 'snet-far'
+        $info.VNetResourceGroup | Should -Be 'rg-far'
+    }
+
+    It 'only lets Approved private endpoint connections make a target reachable, but counts every endpoint in its subnet' {
+        $row = Import-Csv (Join-Path $script:OutA 'storage_accounts.csv') | Where-Object { $_.ResourceKey -eq $global:Fake.SaLocked.ToLowerInvariant() }
+        $row.NetworkAccess | Should -Be 'PublicDisabled'
+        $row.PrivateEndpointCount | Should -Be '0'
+        $sn = $script:Subnets | Where-Object { $_.SubnetName -eq 'snet-pe2' }
+        $sn.PrivateEndpointCount | Should -Be '1'
+        $sn.UsedIPs | Should -Be '1'
+    }
+
+    It 'gives a FileStorage account row the Azure Files CandidateVeeamProtection' {
+        $row = Import-Csv (Join-Path $script:OutA 'storage_accounts.csv') | Where-Object { $_.ResourceKey -eq $global:Fake.SaFiles.ToLowerInvariant() }
+        $row.CandidateVeeamProtection | Should -Be 'Veeam Backup for Microsoft Azure: Azure Files'
+        $row.Kind | Should -Be 'FileStorage'
+    }
+
+    It 'records protection state in backup_coverage.csv and resolves policy retention, skipping disabled schedules' {
+        $cov = Import-Csv (Join-Path $script:OutA 'backup_coverage.csv')
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Vm01.ToLowerInvariant() }).ProtectionState | Should -Be 'Protected'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Disk01.ToLowerInvariant() }).ProtectionState | Should -Be 'ProtectionConfigured'
+        $pol = Import-Csv (Join-Path $script:OutA 'backup_policies.csv') | Where-Object { $_.VaultType -eq 'RecoveryServicesVault' }
+        $pol.Retention | Should -Be 'D:30'
+    }
+
+    It 'reports Unknown instead of None when backup discovery failed for the subscription' {
+        $saved = $script:State
+        try {
+            Initialize-AssessmentState
+            $script:State.Outputs['vms'].Add([pscustomobject]@{ ResourceKey = 'k1'; SubscriptionId = 'sub-a' })
+            $script:State.Outputs['vms'].Add([pscustomobject]@{ ResourceKey = 'k2'; SubscriptionId = 'sub-b' })
+            $script:State.Outputs['cosmos_accounts'].Add([pscustomobject]@{ ResourceKey = 'k3'; SubscriptionId = 'sub-a' })
+            Set-CoverageIncomplete 'sub-a'
+            Add-BackupCoverage
+            $cov = $script:State.Outputs['backup_coverage']
+            ($cov | Where-Object { $_.ResourceKey -eq 'k1' }).NativeBackup | Should -Be 'Unknown'
+            ($cov | Where-Object { $_.ResourceKey -eq 'k2' }).NativeBackup | Should -Be 'None'
+            ($cov | Where-Object { $_.ResourceKey -eq 'k3' }).NativeBackup | Should -Be 'PlatformBuiltIn'
+        }
+        finally { $script:State = $saved }
+    }
+
+    It 'leaves summary capacity blank when no value is known and flags partial capacity' {
+        $env = Import-Csv (Join-Path $script:OutA 'environment_summary.csv')
+        $none = $env | Where-Object { $_.VNetName -eq '(none)' }
+        $none.Cosmos_Data_GiB | Should -Be '10'
+        $none.CosmosCapacityComplete | Should -Be 'False'
+        ($env | Where-Object { $_.VNetName -eq 'vnet-spoke' }).VmCapacityComplete | Should -Be 'True'
+        $c = New-SummaryCounters
+        $c['CosmosAccounts'] = 2
+        $r = [ordered]@{}
+        Add-SummaryCounters -Row $r -Counters $c
+        $r['Cosmos_Data_GiB'] | Should -Be ''
+        $r['CosmosCapacityComplete'] | Should -BeFalse
+        $r['VM_Provisioned_GiB'] | Should -Be 0
+        $r['VmCapacityComplete'] | Should -BeTrue
+    }
+
     It 'builds subnet capacity, summaries and an environment map that fits ConvertTo-Json -Depth 10' {
         $w = $script:Subnets | Where-Object { $_.SubnetName -eq 'snet-workloads' }
         $w.VNetName | Should -Be 'vnet-spoke'
@@ -558,7 +638,7 @@ Describe 'Anonymised run (mocked Az)' {
         $vm.VNetSubscriptionId | Should -Be $global:Fake.S
         $vm.Region | Should -Be 'westeurope'
         $vm.NetworkAccess | Should -Be 'VNetInjected'
-        @(Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.VNetName -eq $script:SpokeHash }).Count | Should -Be 2
+        @(Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.VNetName -eq $script:SpokeHash }).Count | Should -Be 3
         @(Import-Csv (Join-Path $script:OutB 'network_attachments.csv') | Where-Object { $_.VNetName -eq $script:SpokeHash }).Count | Should -Be 2
         $sn = Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.SubnetName -eq (Get-ExpectedHash -Salt $script:Salt -Value 'snet-workloads') }
         $sn.SubnetPrefix | Should -Match '^[0-9a-f]{12}/24$'
@@ -584,6 +664,15 @@ Describe 'Anonymised run (mocked Az)' {
         $m.Parameters.PSObject.Properties.Name | Should -Not -Contain 'AnonymiseSalt'
     }
 
+    It 'prints no raw names, IDs or addresses to the console when anonymising' {
+        $global:FakeSub = $null
+        $console = Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath (Join-Path $TestDrive 'runB2') -TagNames Environment -BackupAssessment -Anonymise -AnonymiseSalt $script:Salt 6>&1 | Out-String
+        $console | Should -Not -BeNullOrEmpty
+        foreach ($raw in @('/subscriptions/', 'vnet-hub', 'vnet-spoke', 'stspoke01', 'sqlmi01', 'cosmos-gremlin', 'Contoso-Hub', 'rg-hub-net', '10.1.1.4', 'runB2')) {
+            $console.Contains($raw) | Should -BeFalse -Because "console must not show '$raw'"
+        }
+    }
+
     It 'replaces errors.csv messages with allowlisted diagnostics (status and error code only) when anonymising' {
         $e = Import-Csv (Join-Path $script:OutB 'errors.csv') | Where-Object { $_.Operation -eq 'Get-AzStorageBlobServiceProperty' }
         $e | Should -Not -BeNullOrEmpty
@@ -594,6 +683,118 @@ Describe 'Anonymised run (mocked Az)' {
         $m = Get-Content (Join-Path $script:OutB 'manifest.json') -Raw | ConvertFrom-Json
         $m.Parameters.OutputPath | Should -Not -BeLike '*runB*'
         $e.ResourceKey | Should -Be (Get-ExpectedHash -Salt $script:Salt -Value $global:Fake.Sa)
+    }
+}
+
+Describe 'Incomplete private endpoint listing (mocked Az)' {
+    BeforeAll {
+        Set-FakeMocks
+        Mock Get-AzPrivateEndpoint { if ($global:FakeSub -eq $global:Fake.H) { throw 'listing failed' }; Get-FakeForSub $global:Fake.PEs }
+        $script:OutU = Join-Path $TestDrive 'runU'
+        $global:FakeSub = $null
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $script:OutU -Modules vnet, blob 6>$null | Out-Null
+    }
+
+    It 'reports Unknown with a blank PrivateEndpointCount instead of a confident value, and records it in the manifest' {
+        $rows = Import-Csv (Join-Path $script:OutU 'storage_accounts.csv')
+        $sa = $rows | Where-Object { $_.ResourceKey -eq $global:Fake.Sa.ToLowerInvariant() }
+        $sa.NetworkAccess | Should -Be 'Unknown'
+        $sa.PrivateEndpointCount | Should -Be ''
+        ($rows | Where-Object { $_.ResourceKey -eq $global:Fake.SaLocked.ToLowerInvariant() }).NetworkAccess | Should -Be 'Unknown'
+        $m = Get-Content (Join-Path $script:OutU 'manifest.json') -Raw | ConvertFrom-Json
+        $m.BackboneComplete | Should -BeFalse
+        @($m.PrivateEndpointListingFailed) | Should -Contain $global:Fake.H
+    }
+}
+
+Describe 'Entra and AVS modules (mocked Az and Graph)' {
+    BeforeAll {
+        Set-FakeMocks
+        $global:MgConnected = $false
+        Mock Get-MgContext { if ($global:MgConnected) { [pscustomobject]@{ TenantId = $global:Fake.T } } else { [pscustomobject]@{ TenantId = 'bbbbbbbb-0000-0000-0000-000000000002' } } }
+        Mock Connect-MgGraph { $global:MgConnected = $true }
+        Mock Get-MgOrganization { [pscustomobject]@{ VerifiedDomains = @(@{ Name = 'contoso.onmicrosoft.com'; IsDefault = $true }) } }
+        Mock Invoke-MgGraphRequest {
+            if ($Uri -like '*page=2') { return @{ value = @(@{ id = 3 }) } }
+            if ($Uri -like '*/users?*') { return @{ value = @(@{ id = 1 }, @{ id = 2 }); '@odata.nextLink' = 'https://graph.microsoft.com/v1.0/users?page=2' } }
+            @{ value = @(@{ id = 1 }) }
+        }
+        $pc1 = "/subscriptions/$($global:Fake.S)/resourceGroups/rg-avs/providers/Microsoft.AVS/privateClouds/avs01"
+        $pc2 = "/subscriptions/$($global:Fake.S)/resourceGroups/rg-avs/providers/Microsoft.AVS/privateClouds/avs02"
+        Mock Get-AzVMwarePrivateCloud {
+            if ($global:FakeSub -eq $global:Fake.S) {
+                [pscustomobject]@{ Id = $pc1; Name = 'avs01'; ResourceGroupName = 'rg-avs'; Location = 'westeurope'; SkuName = 'av36'; ManagementClusterSize = 3; ManagementClusterId = 1 }
+                [pscustomobject]@{ Id = $pc2; Name = 'avs02'; ResourceGroupName = 'rg-avs'; Location = 'westeurope'; SkuName = 'av36'; ManagementClusterSize = 3; ManagementClusterId = 1 }
+            }
+        }
+        # avs01's listing includes the management cluster (ClusterId 1); avs02's listing is empty.
+        Mock Get-AzVMwareCluster { if ($PrivateCloudName -eq 'avs01') { [pscustomobject]@{ Name = 'Cluster-1'; ClusterId = 1; ClusterSize = 3 }; [pscustomobject]@{ Name = 'Cluster-2'; ClusterId = 2; ClusterSize = 4 } } }
+        Mock Get-AzVMwareGlobalReachConnection { }
+        $script:OutE = Join-Path $TestDrive 'runE'
+        $global:FakeSub = $null
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $script:OutE -Modules vnet, avs, entra 6>$null | Out-Null
+    }
+
+    It 'reconnects Graph when the existing context is for another tenant, and follows @odata.nextLink' {
+        Should -Invoke Connect-MgGraph -Times 1 -Exactly -Scope Describe -ParameterFilter { $TenantId -eq $global:Fake.T }
+        $e = Import-Csv (Join-Path $script:OutE 'entra_tenant.csv')
+        $e.TenantId | Should -Be $global:Fake.T
+        $e.Users | Should -Be '3'
+        $e.Groups | Should -Be '1'
+    }
+
+    It 'refuses to label another tenant''s Graph data with the assessed tenant' {
+        Mock Get-MgContext { [pscustomobject]@{ TenantId = 'bbbbbbbb-0000-0000-0000-000000000002' } }
+        Mock Connect-MgGraph { }
+        { Get-EntraInventory -TenantId $global:Fake.T 6>$null } | Should -Throw '*not for the assessed tenant*'
+    }
+
+    It 'does not double-count the AVS management cluster, and falls back to its size when the listing is empty' {
+        $rows = Import-Csv (Join-Path $script:OutE 'avs_private_clouds.csv')
+        $a1 = $rows | Where-Object { $_.ResourceName -eq 'avs01' }
+        $a1.TotalHosts | Should -Be '7'
+        $a1.HostCountPerCluster | Should -Be '3;4'
+        ($rows | Where-Object { $_.ResourceName -eq 'avs02' }).TotalHosts | Should -Be '3'
+    }
+}
+
+Describe 'Run-level failures (mocked Az)' {
+    BeforeEach { Set-FakeMocks; $global:FakeSub = $null }
+
+    It 'exits non-zero but still writes diagnostics when subscription listing fails, without raw text on the console when anonymising' {
+        Mock Get-AzSubscription { throw "Listing failed for '/subscriptions/$($global:Fake.H)/resourceGroups/rg-secret' and account 'stsecret01' (403) AuthorizationFailed" }
+        $out = Join-Path $TestDrive 'runF1'
+        $console = Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $out -Modules vnet -Anonymise -AnonymiseSalt 's1' 6>&1 | Out-String
+        $script:ExitCode | Should -Be 1
+        $err = Import-Csv (Join-Path $out 'errors.csv') | Where-Object { $_.Operation -eq 'Run' }
+        $err | Should -Not -BeNullOrEmpty
+        $err.Message | Should -Not -BeLike '*rg-secret*'
+        $console | Should -Not -BeLike '*rg-secret*'
+        $console | Should -Not -BeLike '*stsecret01*'
+        $console | Should -Not -BeLike '*/subscriptions/*'
+        $console | Should -BeLike '*AuthorizationFailed*'
+    }
+
+    It 'fails the run (non-zero exit) when a CSV write fails' {
+        Mock Export-Csv { throw 'disk full' }
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath (Join-Path $TestDrive 'runF2') -Modules vnet 6>$null | Out-Null
+        $script:ExitCode | Should -Be 1
+    }
+
+    It 'writes no data and exits non-zero when anonymisation fails' {
+        Mock ConvertTo-MaskedRow { throw 'mask failure' }
+        $out = Join-Path $TestDrive 'runF3'
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $out -Modules vnet -Anonymise -AnonymiseSalt 's1' 6>$null | Out-Null
+        $script:ExitCode | Should -Be 1
+        @(Get-ChildItem -Path $out -File).Name | Should -Be @('manifest.json')
+        (Get-Content (Join-Path $out 'manifest.json') -Raw | ConvertFrom-Json).Status | Should -BeLike 'Failed*'
+    }
+}
+
+Describe 'Test hygiene' {
+    It 'keeps the Az/Graph stubs out of the global scope so they never shadow real cmdlets' {
+        foreach ($n in $script:StubNames) { Test-Path ("function:global:" + $n) | Should -BeFalse -Because $n }
+        Test-Path 'function:global:Get-FakeForSub' | Should -BeFalse
     }
 }
 
@@ -615,4 +816,9 @@ Describe 'Invoke-WithRetry' {
         { Invoke-WithRetry -ScriptBlock { $script:calls++; throw 'ServiceUnavailable (503)' } 6>$null } | Should -Throw
         $script:calls | Should -Be 5
     }
+}
+
+AfterAll {
+    # Leave the session clean: no fake-estate globals survive the run (stubs are script-scoped).
+    foreach ($v in @('Fake', 'FakeSub', 'FakeAks', 'MgConnected')) { Remove-Variable -Name $v -Scope Global -ErrorAction SilentlyContinue }
 }
