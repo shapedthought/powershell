@@ -45,4 +45,6 @@ Invoke-Pester -Path ./azure_environment_assessment.Tests.ps1 -Output Detailed
 
 NOTE: It passes its 36 mocked Pester tests but has not yet been run against a real Azure tenant. Test it on one subscription first and compare a few rows with the portal. A wrong Az property name shows up as a blank column, not an error. Requires the Az PowerShell module and Reader on each subscription.
 
+With `-Anonymise`, every file the script writes is anonymised, and so is the script's own console output. Output printed directly by Azure tools (for example Az error text or the `Connect-AzAccount` sign-in prompt) can still contain names, so **do not record a transcript of an anonymised run** (`Start-Transcript`, terminal logging) if the transcript will leave the organisation.
+
 This script has no association with Veeam.
