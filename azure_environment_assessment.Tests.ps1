@@ -69,7 +69,8 @@ BeforeAll {
     $peNic = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/networkInterfaces/pe-stspoke-blob.nic.0001"
     $vm01 = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm01"
     $vm02 = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm02"
-    $disk01 = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Compute/disks/vm01-os"
+    # vm01-os is deliberately in a different resource group from vm01.
+    $disk01 = "/subscriptions/$S/resourceGroups/rg-disks/providers/Microsoft.Compute/disks/vm01-os"
     $diskOrphan = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Compute/disks/orphan-data"
     $sa = "/subscriptions/$S/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stspoke01"
     $pe = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/privateEndpoints/pe-stspoke-blob"
@@ -134,7 +135,7 @@ BeforeAll {
         }
         Disks = @{
             $S = @(
-                [pscustomobject]@{ Id = $disk01; Name = 'vm01-os'; ResourceGroupName = 'rg-app'; Location = 'westeurope'; Zones = @('1'); ManagedBy = $vm01; DiskState = 'Attached'
+                [pscustomobject]@{ Id = $disk01; Name = 'vm01-os'; ResourceGroupName = 'rg-disks'; Location = 'westeurope'; Zones = @('1'); ManagedBy = $vm01; DiskState = 'Attached'
                     Sku = @{ Name = 'Premium_LRS' }; DiskSizeGB = 128; Tier = 'P10'; Encryption = @{ Type = 'EncryptionAtRestWithPlatformKey' }; NetworkAccessPolicy = 'AllowAll'; HyperVGeneration = 'V2'; OsType = 'Linux' }
                 [pscustomobject]@{ Id = $diskOrphan; Name = 'orphan-data'; ResourceGroupName = 'rg-app'; Location = 'westeurope'; ManagedBy = $null; DiskState = 'Unattached'
                     Sku = @{ Name = 'UltraSSD_LRS' }; DiskSizeGB = 512; Encryption = @{ Type = 'EncryptionAtRestWithCustomerKey' } }
@@ -384,10 +385,12 @@ Describe 'Azure environment assessment (mocked Az)' {
         Resolve-NetworkAccess -PublicNetworkAccess 'Enabled' -DefaultAction 'Allow' | Should -Be 'Public'
     }
 
-    It 'gives an attached disk its VM placement and an unattached disk blank network columns with N/A' {
+    It 'gives an attached disk its VM network placement but keeps its own resource group, and an unattached disk blank network columns with N/A' {
         $disks = Import-Csv (Join-Path $script:OutA 'disks.csv')
         $att = $disks | Where-Object { $_.ResourceKey -eq $global:Fake.Disk01.ToLowerInvariant() }
         $att.ResourceName | Should -Be 'vm01-os'
+        $att.ResourceGroup | Should -Be 'rg-disks'
+        $att.SubscriptionId | Should -Be $global:Fake.S
         $att.VNetName | Should -Be 'vnet-spoke'
         $att.SubnetName | Should -Be 'snet-workloads'
         $att.NetworkAccess | Should -Be 'VNetInjected'
@@ -511,6 +514,33 @@ Describe 'AKS module (mocked Az)' {
     }
 }
 
+Describe 'Storage private endpoints are per service (mocked Az)' {
+    BeforeAll {
+        Set-FakeMocks
+        # stspoke01 has public access disabled and only a 'blob' private endpoint (in the hub).
+        Mock Get-AzRmStorageShare {
+            if ($GetShareUsage) { return [pscustomobject]@{ Name = $Name; ShareUsageBytes = 1073741824 } }
+            if ($StorageAccountName -eq 'stspoke01') {
+                [pscustomobject]@{ Name = 'share1'; Id = "$($global:Fake.Sa)/fileServices/default/shares/share1"; QuotaGiB = 100; EnabledProtocols = 'SMB' }
+            }
+        }
+        $script:OutP = Join-Path $TestDrive 'runP'
+        $global:FakeSub = $null
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $script:OutP -Modules vnet, files, blob 6>$null | Out-Null
+    }
+
+    It 'places a file share only on file endpoints, so a blob-only endpoint leaves it PublicDisabled' {
+        $sh = Import-Csv (Join-Path $script:OutP 'file_shares.csv') | Where-Object { $_.ShareName -eq 'share1' }
+        $sh | Should -Not -BeNullOrEmpty
+        $sh.NetworkAccess | Should -Be 'PublicDisabled'
+        $sh.PrivateEndpointCount | Should -Be '0'
+        $sh.VNetName | Should -Be ''
+        $sa = Import-Csv (Join-Path $script:OutP 'storage_accounts.csv') | Where-Object { $_.ResourceKey -eq $global:Fake.Sa.ToLowerInvariant() }
+        $sa.NetworkAccess | Should -Be 'PrivateEndpointOnly'
+        $sa.SubnetName | Should -Be 'snet-pe'
+    }
+}
+
 Describe 'Anonymised run (mocked Az)' {
     BeforeAll {
         Set-FakeMocks
@@ -554,12 +584,15 @@ Describe 'Anonymised run (mocked Az)' {
         $m.Parameters.PSObject.Properties.Name | Should -Not -Contain 'AnonymiseSalt'
     }
 
-    It 'scrubs errors.csv messages by hashing masked values but keeps ordinary words such as Forbidden' {
+    It 'replaces errors.csv messages with allowlisted diagnostics (status and error code only) when anonymising' {
         $e = Import-Csv (Join-Path $script:OutB 'errors.csv') | Where-Object { $_.Operation -eq 'Get-AzStorageBlobServiceProperty' }
         $e | Should -Not -BeNullOrEmpty
-        $e.Message | Should -BeLike "*'Forbidden'*"
-        $e.Message | Should -BeLike ("*'" + (Get-ExpectedHash -Salt $script:Salt -Value 'stspoke01') + "'*")
+        $e.Message | Should -BeLike '*HTTP 403*'
+        $e.Message | Should -BeLike '*Forbidden*'
         $e.Message | Should -Not -BeLike '*stspoke01*'
+        $e.Message | Should -Not -BeLike ("*" + (Get-ExpectedHash -Salt $script:Salt -Value 'stspoke01') + "*")
+        $m = Get-Content (Join-Path $script:OutB 'manifest.json') -Raw | ConvertFrom-Json
+        $m.Parameters.OutputPath | Should -Not -BeLike '*runB*'
         $e.ResourceKey | Should -Be (Get-ExpectedHash -Salt $script:Salt -Value $global:Fake.Sa)
     }
 }

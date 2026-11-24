@@ -590,23 +590,41 @@ function Get-MaskedList {
     return ($out -join ';')
 }
 
+$script:AllowedErrorCodes = @(
+    'AuthorizationFailed', 'AuthenticationFailed', 'InvalidAuthenticationToken', 'ExpiredAuthenticationToken',
+    'Forbidden', 'Unauthorized', 'NotFound', 'ResourceNotFound', 'ResourceGroupNotFound', 'SubscriptionNotFound',
+    'ParentResourceNotFound', 'NoRegisteredProviderFound', 'MissingSubscriptionRegistration', 'SubscriptionNotRegistered',
+    'InvalidSubscriptionId', 'DisallowedOperation', 'RequestDisallowedByPolicy', 'TooManyRequests', 'Throttled',
+    'ServerTimeout', 'GatewayTimeout', 'ServiceUnavailable', 'InternalServerError', 'BadRequest', 'Conflict',
+    'InvalidResourceType', 'NotSupported', 'FeatureNotSupported', 'OperationNotAllowed', 'ResourceDisabled',
+    'ReadOnlyDisabledSubscription', 'SubscriptionDisabled', 'MetricNotFound', 'NoData', 'Timeout'
+)
+
 function Protect-Message {
-    <# When anonymising: replaces every raw value that has been masked during the run (names, IDs,
-       IPs, prefixes, tag values) with its hash, longest first and case-insensitively, then hashes any
-       remaining resource-ID path. Ordinary words (for example 'Forbidden') are left alone. #>
+    <# When anonymising, raw error text is NOT exported: Azure messages embed resource names, IDs and
+       paths that the run may never have seen (and so could not have masked). Instead, return an
+       allowlisted diagnostic: the HTTP status code and any recognised Azure error codes, e.g.
+       "HTTP 403; AuthorizationFailed". Anything else becomes "details withheld (anonymised)". #>
     param([string]$Message)
     if (-not $script:AnonymiseEnabled -or -not $Message) { return $Message }
-    $m = $Message
-    if ($script:MaskRegistry -and $script:MaskRegistry.Count -gt 0) {
-        if ($script:MaskRegexCount -ne $script:MaskRegistry.Count) {
-            $keys = @($script:MaskRegistry.Keys | Sort-Object -Property Length -Descending | ForEach-Object { [regex]::Escape([string]$_) })
-            $script:MaskRegex = New-Object System.Text.RegularExpressions.Regex ('(?<![A-Za-z0-9_\-])(?:' + ($keys -join '|') + ')(?![A-Za-z0-9_\-])'), 'IgnoreCase'
-            $script:MaskRegexCount = $script:MaskRegistry.Count
+    $parts = New-List
+    $status = [regex]::Match($Message, '(?<![\d.])([45]\d\d)(?![\d.])')
+    if ($status.Success) { $parts.Add('HTTP ' + $status.Groups[1].Value) }
+    foreach ($code in $script:AllowedErrorCodes) {
+        if ([regex]::IsMatch($Message, '(?<![A-Za-z0-9])' + [regex]::Escape($code) + '(?![A-Za-z0-9])', 'IgnoreCase')) {
+            if (-not $parts.Contains($code)) { $parts.Add($code) }
         }
-        $m = $script:MaskRegex.Replace($m, { param($x) $script:MaskRegistry[$x.Value] })
     }
-    $m = [regex]::Replace($m, '(?i)/subscriptions/[^\s''"\),;]+', { param($x) Get-Mask $x.Value })
-    return $m
+    if ($parts.Count -eq 0) { return 'details withheld (anonymised)' }
+    return ($parts -join '; ')
+}
+
+function Protect-OutputPath {
+    <# The output path can contain user, customer or project names that never pass through the mask
+       registry, so when anonymising it is hashed as a whole. #>
+    param([string]$Path)
+    if (-not $script:AnonymiseEnabled -or -not $Path) { return $Path }
+    return (Get-Mask $Path -CaseSensitive)
 }
 
 function Add-ErrorRow {
@@ -1646,7 +1664,9 @@ function Get-FileShareInventory {
                 if (-not $shareId) { $shareId = [string]$sa.Id + '/fileServices/default/shares/' + $shareName }
                 $rec = New-WorkloadRecord -Output 'file_shares' -Module 'files' -ResourceId $shareId -Subscription $Subscription -ResourceGroup $rg `
                     -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName "$san/$shareName" -ResourceType 'Microsoft.Storage/storageAccounts/fileServices/shares' -Tags (Get-Prop $sa 'Tags') -Candidate $script:WorkloadMap.files
-                $rec.Net.InheritFrom = [string]$sa.Id
+                # Storage private endpoints are per service: a share is reachable only through
+                # 'file' endpoints, so it is placed on those rather than inheriting the account row.
+                Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter @('file')
                 $c = $rec.Columns
                 $c.StorageAccountName = $san
                 $c.ShareName = $shareName
@@ -1708,7 +1728,8 @@ function Get-StorageAccountInventory {
             $kind = [string](Get-Prop $sa 'Kind')
             $rec = New-WorkloadRecord -Output 'storage_accounts' -Module 'blob' -ResourceId $saId -Subscription $Subscription -ResourceGroup $rg `
                 -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName $san -ResourceType 'Microsoft.Storage/storageAccounts' -Tags (Get-Prop $sa 'Tags') -Candidate $script:WorkloadMap.blob
-            Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter $null
+            # This row is the Blob workload: place it on 'blob' / 'dfs' (ADLS Gen2) endpoints only.
+            Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter @('blob', 'dfs')
             $hasBlob = ($kind -ne 'FileStorage')
             $hasFile = (@('StorageV2', 'Storage', 'FileStorage') -contains $kind)
             $c = $rec.Columns
@@ -2213,12 +2234,12 @@ function Get-PlacementColumns {
     $net = $Record.Net
 
     if ($net.InheritFrom) {
-        # Child row: own ResourceKey, ResourceName (and ResourceType / CandidateVeeamProtection, which
-        # identify the row rather than place it); every other placement column comes from the parent.
+        # Child row: keeps its own identity and location (tenant, subscription, resource group,
+        # region, zones -- a disk can live in a different resource group from its VM) and inherits
+        # only the parent's network placement.
         $parent = $script:State.Resolved[(ConvertTo-Lower $net.InheritFrom)]
         if ($parent) {
-            foreach ($f in $script:PlacementColumns) {
-                if (@('ResourceKey', 'ResourceName', 'ResourceType', 'CandidateVeeamProtection') -contains $f) { continue }
+            foreach ($f in @('NetworkAccess', 'VNetSubscriptionId', 'VNetResourceGroup', 'VNetName', 'SubnetName', 'SubnetPrefix', 'PrivateEndpointCount')) {
                 $pl[$f] = $parent[$f]
             }
         }
@@ -2830,10 +2851,10 @@ function Invoke-AzureEnvironmentAssessment {
         if ($k -eq 'AnonymiseSalt') { continue }
         $v = $PSBoundParameters[$k]
         if ($v -is [System.Management.Automation.SwitchParameter]) { $v = [bool]$v }
-        if ($k -eq 'OutputPath') { $v = Protect-Message ([string]$v) }
+        if ($k -eq 'OutputPath') { $v = Protect-OutputPath ([string]$v) }
         $boundParams[$k] = $v
     }
-    $boundParams['OutputPath'] = Protect-Message $OutputPath
+    $boundParams['OutputPath'] = Protect-OutputPath $OutputPath
     $skippedOut = New-List
     foreach ($sk in $skipped) { $skippedOut.Add([pscustomobject]@{ SubscriptionId = $sk.SubscriptionId; SubscriptionName = $sk.SubscriptionName; Reason = (Protect-Message ([string]$sk.Reason)) }) }
     $boundParams['EffectiveModules'] = $enabled.ToArray()
