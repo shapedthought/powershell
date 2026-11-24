@@ -1,5 +1,7 @@
 # Azure Assessment Script — Specification
 
+> An expanded, multi-workload version of this spec now lives in the prompt library as [VBAz-AzureEnvironmentAssessment](https://github.com/shapedthought/awesome-veeam-prompts/tree/main/VBAz-AzureEnvironmentAssessment), and the script generated from it is [`azure_environment_assessment.ps1`](azure_environment_assessment.ps1). This document describes the original VM-focused `azure_assessment.ps1`.
+
 This document describes the requirements for an Azure environment assessment PowerShell script. It is intended to be used as a prompt or reference for recreating the script with an LLM or from scratch.
 
 ---
