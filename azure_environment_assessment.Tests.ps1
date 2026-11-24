@@ -32,7 +32,7 @@ BeforeAll {
         'Get-AzRmStorageContainer' = '$ResourceGroupName, $StorageAccountName'
         'Get-AzMetric' = '$ResourceId, $MetricName, $StartTime, $EndTime, $TimeGrain, $AggregationType'
         'Get-AzMetricDefinition' = '$ResourceId, $MetricName'
-        'Get-AzResource' = '$ResourceId, [switch]$ExpandProperties'
+        'Get-AzResource' = '$ResourceId, $ResourceType, [switch]$ExpandProperties'
         'Get-AzAksCluster' = ''; 'Get-AzVMwarePrivateCloud' = ''; 'Get-AzVMwareCluster' = '$PrivateCloudName, $ResourceGroupName'
         'Get-AzVMwareGlobalReachConnection' = '$PrivateCloudName, $ResourceGroupName'
         'Get-AzRecoveryServicesVault' = ''; 'Get-AzRecoveryServicesBackupItem' = '$BackupManagementType, $WorkloadType, $VaultId'
@@ -57,8 +57,14 @@ BeforeAll {
     $T = 'aaaaaaaa-0000-0000-0000-000000000001'
     $hubVnet = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/virtualNetworks/vnet-hub"
     $spokeVnet = "/subscriptions/$S/resourceGroups/rg-spoke-net/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
-    $snWork = "$hubVnet/subnets/snet-workloads"; $snPe = "$hubVnet/subnets/snet-pe"; $snGw = "$hubVnet/subnets/GatewaySubnet"
-    $snMi = "$spokeVnet/subnets/snet-sqlmi"
+    $snWorkers = "$hubVnet/subnets/snet-workers"; $snPe = "$hubVnet/subnets/snet-pe"; $snGw = "$hubVnet/subnets/GatewaySubnet"
+    $snMi = "$spokeVnet/subnets/snet-sqlmi"; $snWork = "$spokeVnet/subnets/snet-workloads"
+    $peNic2 = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/networkInterfaces/pe-kv.nic.0002"
+    $pe2 = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/privateEndpoints/pe-kv"
+    $kv = "/subscriptions/$H/resourceGroups/rg-hub-sec/providers/Microsoft.KeyVault/vaults/kv-hub"
+    $saLocked = "/subscriptions/$S/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/stlocked01"
+    $rsv = "/subscriptions/$S/resourceGroups/rg-backup/providers/Microsoft.RecoveryServices/vaults/rsv-spoke"
+    $bv = "/subscriptions/$S/resourceGroups/rg-backup/providers/Microsoft.DataProtection/backupVaults/bv-spoke"
     $nic01 = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Network/networkInterfaces/nic-vm01"
     $peNic = "/subscriptions/$H/resourceGroups/rg-hub-net/providers/Microsoft.Network/networkInterfaces/pe-stspoke-blob.nic.0001"
     $vm01 = "/subscriptions/$S/resourceGroups/rg-app/providers/Microsoft.Compute/virtualMachines/vm01"
@@ -72,7 +78,8 @@ BeforeAll {
     $cosG = "/subscriptions/$S/resourceGroups/rg-data/providers/Microsoft.DocumentDB/databaseAccounts/cosmos-gremlin"
 
     $global:Fake = @{
-        H = $H; S = $S; D = $D; T = $T; HubVnet = $hubVnet; Sa = $sa; Mi = $mi; Vm01 = $vm01; Vm02 = $vm02; CosP = $cosP; CosG = $cosG
+        H = $H; S = $S; D = $D; T = $T; HubVnet = $hubVnet; Sa = $sa; SaLocked = $saLocked; Rsv = $rsv; Bv = $bv; Disk01 = $disk01; DiskOrphan = $diskOrphan
+        RsvItem = "$rsv/backupFabrics/Azure/protectionContainers/IaasVMContainer;iaasvmcontainerv2;rg-app;vm01/protectedItems/VM;iaasvmcontainerv2;rg-app;vm01"; Mi = $mi; Vm01 = $vm01; Vm02 = $vm02; CosP = $cosP; CosG = $cosG
         Subs = @(
             [pscustomobject]@{ Id = $H; Name = 'Contoso-Hub'; State = 'Enabled'; TenantId = $T }
             [pscustomobject]@{ Id = $S; Name = 'Contoso-Spoke'; State = 'Enabled'; TenantId = $T }
@@ -84,7 +91,7 @@ BeforeAll {
                     AddressSpace = @{ AddressPrefixes = @('10.0.0.0/16') }; DhcpOptions = @{ DnsServers = @('10.0.0.4') }
                     VirtualNetworkPeerings = @(@{ Name = 'hub-to-spoke'; RemoteVirtualNetwork = @{ Id = $spokeVnet }; PeeringState = 'Connected' })
                     Subnets = @(
-                        [pscustomobject]@{ Id = $snWork; Name = 'snet-workloads'; AddressPrefix = @('10.0.1.0/24'); IpConfigurations = @(@{ Id = "$nic01/ipConfigurations/ipconfig1" }); Delegations = @(); ServiceEndpoints = @(@{ Service = 'Microsoft.Storage' }) }
+                        [pscustomobject]@{ Id = $snWorkers; Name = 'snet-workers'; AddressPrefix = @('10.0.3.0/24'); IpConfigurations = @(); Delegations = @() }
                         [pscustomobject]@{ Id = $snPe; Name = 'snet-pe'; AddressPrefix = @('10.0.2.0/27'); IpConfigurations = @(@{ Id = "$peNic/ipConfigurations/privateEndpointIpConfig.1" }); Delegations = @(); PrivateEndpointNetworkPolicies = 'Disabled' }
                         [pscustomobject]@{ Id = $snGw; Name = 'GatewaySubnet'; AddressPrefix = @('10.0.255.0/27'); IpConfigurations = @(); Delegations = @() }
                     )
@@ -95,16 +102,24 @@ BeforeAll {
                     VirtualNetworkPeerings = @(@{ Name = 'spoke-to-hub'; RemoteVirtualNetwork = @{ Id = $hubVnet }; PeeringState = 'Connected' })
                     Subnets = @(
                         [pscustomobject]@{ Id = $snMi; Name = 'snet-sqlmi'; AddressPrefix = @('10.1.0.0/24'); IpConfigurations = @(); Delegations = @(@{ ServiceName = 'Microsoft.Sql/managedInstances' }) }
+                        [pscustomobject]@{ Id = $snWork; Name = 'snet-workloads'; AddressPrefix = @('10.1.1.0/24'); IpConfigurations = @(@{ Id = "$nic01/ipConfigurations/ipconfig1" }); Delegations = @(); ServiceEndpoints = @(@{ Service = 'Microsoft.Storage' }) }
                     )
                 })
         }
         Nics = @{
-            $H = @([pscustomobject]@{ Id = $peNic; Name = 'pe-stspoke-blob.nic.0001'; IpConfigurations = @(@{ Id = "$peNic/ipConfigurations/privateEndpointIpConfig.1"; Primary = $true; PrivateIpAddress = '10.0.2.4'; PrivateIpAddressVersion = 'IPv4'; Subnet = @{ Id = $snPe } }) })
-            $S = @([pscustomobject]@{ Id = $nic01; Name = 'nic-vm01'; IpConfigurations = @(@{ Id = "$nic01/ipConfigurations/ipconfig1"; Primary = $true; PrivateIpAddress = '10.0.1.4'; PrivateIpAddressVersion = 'IPv4'; Subnet = @{ Id = $snWork } }) })
+            $H = @(
+                [pscustomobject]@{ Id = $peNic; Name = 'pe-stspoke-blob.nic.0001'; IpConfigurations = @(@{ Id = "$peNic/ipConfigurations/privateEndpointIpConfig.1"; Primary = $true; PrivateIpAddress = '10.0.2.4'; PrivateIpAddressVersion = 'IPv4'; Subnet = @{ Id = $snPe } }) }
+                [pscustomobject]@{ Id = $peNic2; Name = 'pe-kv.nic.0002'; IpConfigurations = @(@{ Id = "$peNic2/ipConfigurations/privateEndpointIpConfig.1"; Primary = $true; PrivateIpAddress = '10.0.2.5'; PrivateIpAddressVersion = 'IPv4'; Subnet = @{ Id = $snPe } }) }
+            )
+            # VM NIC: same subscription as the VM, different resource group from its vNet.
+            $S = @([pscustomobject]@{ Id = $nic01; Name = 'nic-vm01'; IpConfigurations = @(@{ Id = "$nic01/ipConfigurations/ipconfig1"; Primary = $true; PrivateIpAddress = '10.1.1.4'; PrivateIpAddressVersion = 'IPv4'; Subnet = @{ Id = $snWork } }) })
         }
         PEs = @{
             $H = @([pscustomobject]@{ Id = $pe; Name = 'pe-stspoke-blob'; Subnet = @{ Id = $snPe }; NetworkInterfaces = @(@{ Id = $peNic })
-                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $sa; GroupIds = @('blob') }) })
+                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $sa; GroupIds = @('blob') }) }
+                # Its NIC IP configuration is NOT listed in the subnet's IpConfigurations (UsedIPs de-dup test).
+                [pscustomobject]@{ Id = $pe2; Name = 'pe-kv'; Subnet = @{ Id = $snPe }; NetworkInterfaces = @(@{ Id = $peNic2 })
+                    PrivateLinkServiceConnections = @(@{ PrivateLinkServiceId = $kv; GroupIds = @('vault') }) })
         }
         VMs = @{
             $S = @(
@@ -128,7 +143,9 @@ BeforeAll {
         Storage = @{
             $S = @([pscustomobject]@{ Id = $sa; StorageAccountName = 'stspoke01'; ResourceGroupName = 'rg-data'; PrimaryLocation = 'westeurope'; Kind = 'StorageV2'
                     Sku = @{ Name = 'Standard_ZRS' }; AccessTier = 'Hot'; PublicNetworkAccess = 'Disabled'
-                    NetworkRuleSet = @{ DefaultAction = 'Deny'; IpRules = @(); VirtualNetworkRules = @() }; Tags = @{ Environment = 'Prod' } })
+                    NetworkRuleSet = @{ DefaultAction = 'Deny'; IpRules = @(); VirtualNetworkRules = @() }; Tags = @{ Environment = 'Prod' } }
+                [pscustomobject]@{ Id = $saLocked; StorageAccountName = 'stlocked01'; ResourceGroupName = 'rg-data'; PrimaryLocation = 'westeurope'; Kind = 'BlockBlobStorage'
+                    Sku = @{ Name = 'Premium_LRS' }; PublicNetworkAccess = 'Disabled'; NetworkRuleSet = @{ DefaultAction = 'Allow'; IpRules = @(); VirtualNetworkRules = @() } })
         }
         Instances = @{
             $S = @([pscustomobject]@{ Id = $mi; ManagedInstanceName = 'sqlmi01'; ResourceGroupName = 'rg-data'; Location = 'westeurope'; SubnetId = $snMi
@@ -177,17 +194,36 @@ BeforeAll {
         Mock Get-AzSqlServer { }
         Mock Get-AzSqlInstance { Get-FakeForSub $global:Fake.Instances }
         Mock Get-AzSqlInstanceDatabase { [pscustomobject]@{ Id = "$($global:Fake.Mi)/databases/appdb"; Name = 'appdb'; Status = 'Online' }; [pscustomobject]@{ Id = "$($global:Fake.Mi)/databases/master"; Name = 'master' } }
-        Mock Get-AzResource { Get-FakeForSub $global:Fake.Resources }
+        Mock Get-AzResource { if ($ResourceType) { return }; Get-FakeForSub $global:Fake.Resources }
         Mock Get-AzCosmosDBAccount { $global:Fake.Cosmos[$Name] }
         Mock Get-AzCosmosDBSqlDatabase { [pscustomobject]@{ Name = 'db1' } }
         Mock Get-AzCosmosDBSqlContainer { [pscustomobject]@{ Name = 'c1' }; [pscustomobject]@{ Name = 'c2' } }
         Mock Get-AzCosmosDBGremlinDatabase { [pscustomobject]@{ Name = 'g1' } }
         Mock Get-AzCosmosDBGremlinGraph { [pscustomobject]@{ Name = 'graph1' } }
         Mock Get-AzStorageAccount { Get-FakeForSub $global:Fake.Storage }
-        Mock Get-AzStorageBlobServiceProperty { [pscustomobject]@{ IsVersioningEnabled = $true; DeleteRetentionPolicy = @{ Enabled = $true; Days = 7 }; ContainerDeleteRetentionPolicy = @{ Enabled = $false }; ChangeFeed = @{ Enabled = $false }; RestorePolicy = @{ Enabled = $false } } }
+        Mock Get-AzStorageBlobServiceProperty {
+            if ($StorageAccountName -eq 'stspoke01') { throw "Operation returned an invalid status code 'Forbidden' (403) for storage account 'stspoke01'." }
+            [pscustomobject]@{ IsVersioningEnabled = $true; DeleteRetentionPolicy = @{ Enabled = $true; Days = 7 }; ContainerDeleteRetentionPolicy = @{ Enabled = $false }; ChangeFeed = @{ Enabled = $false }; RestorePolicy = @{ Enabled = $false } } }
         Mock Get-AzStorageFileServiceProperty { [pscustomobject]@{ ShareDeleteRetentionPolicy = @{ Enabled = $true; Days = 14 } } }
         Mock Get-AzRmStorageShare { }
         Mock Get-AzRmStorageContainer { [pscustomobject]@{ Name = 'data' } }
+        # Existing native backup: a Recovery Services vault protecting vm01 and a Backup vault protecting its OS disk.
+        Mock Get-AzRecoveryServicesVault { if ($global:FakeSub -eq $global:Fake.S) { [pscustomobject]@{ ID = $global:Fake.Rsv; Name = 'rsv-spoke'; ResourceGroupName = 'rg-backup'; Location = 'westeurope'; Properties = @{} } } }
+        Mock Get-AzRecoveryServicesBackupItem {
+            if ($WorkloadType -eq 'AzureVM') {
+                [pscustomobject]@{ Id = $global:Fake.RsvItem; Name = 'VM;iaasvmcontainerv2;rg-app;vm01'; SourceResourceId = $global:Fake.Vm01; ProtectionPolicyName = 'DefaultPolicy'
+                    ProtectionState = 'Protected'; LastBackupStatus = 'Completed'; LatestRecoveryPoint = [datetime]'2026-11-23T22:00:00Z' }
+            }
+        }
+        Mock Get-AzRecoveryServicesBackupProtectionPolicy { [pscustomobject]@{ Id = "$($global:Fake.Rsv)/backupPolicies/DefaultPolicy"; Name = 'DefaultPolicy'; WorkloadType = 'AzureVM'; SchedulePolicy = @{ ScheduleRunFrequency = 'Daily'; ScheduleRunTimes = @([datetime]'2026-01-01T22:00:00') }; RetentionPolicy = @{ DailySchedule = @{ DurationCountInDays = 30 } } } }
+        Mock Get-AzRecoveryServicesBackupJob { }
+        Mock Get-AzDataProtectionBackupVault { if ($SubscriptionId -eq $global:Fake.S) { [pscustomobject]@{ Id = $global:Fake.Bv; Name = 'bv-spoke'; Location = 'westeurope' } } }
+        Mock Get-AzDataProtectionBackupPolicy { }
+        Mock Get-AzDataProtectionBackupInstance {
+            [pscustomobject]@{ Id = "$($global:Fake.Bv)/backupInstances/vm01-os-inst"; Name = 'vm01-os-inst'
+                Property = @{ DataSourceInfo = @{ ResourceId = $global:Fake.Disk01; DatasourceType = 'Microsoft.Compute/disks' }; PolicyInfo = @{ PolicyId = "$($global:Fake.Bv)/backupPolicies/disk-daily" }
+                    CurrentProtectionState = 'ProtectionConfigured'; ProtectionStatus = @{ Status = 'ProtectionConfigured' } } }
+        }
         Mock Get-AzMetricDefinition { [pscustomobject]@{ MetricAvailabilities = @(@{ TimeGrain = [timespan]'00:05:00' }, @{ TimeGrain = [timespan]'01:00:00' }); SupportedAggregationTypes = @('Average', 'Maximum') } }
         Mock Get-AzMetric {
             if ($ResourceId -like '*cosmos-gremlin' -and $MetricName -eq 'DataUsage') { return [pscustomobject]@{ Name = 'DataUsage'; Data = @() } }
@@ -198,7 +234,7 @@ BeforeAll {
     function Invoke-FakeRun {
         param([string]$Path, [switch]$Anonymise, [string]$Salt)
         $global:FakeSub = $null
-        $p = @{ AcceptDisclaimer = $true; UseExistingContext = $true; OutputPath = $Path; TagNames = @('Environment') }
+        $p = @{ AcceptDisclaimer = $true; UseExistingContext = $true; OutputPath = $Path; TagNames = @('Environment'); BackupAssessment = $true }
         if ($Anonymise) { $p.Anonymise = $true; $p.AnonymiseSalt = $Salt }
         Invoke-AzureEnvironmentAssessment @p 6>$null | Out-Null
     }
@@ -222,24 +258,26 @@ Describe 'Azure environment assessment (mocked Az)' {
         $script:Subnets = Import-Csv (Join-Path $script:OutA 'subnets.csv')
     }
 
-    It 'places a VM whose NIC sits in a vNet of a different subscription (hub) using the hub backbone' {
+    It 'places a VM whose NIC is in a vNet in a different resource group (same subscription)' {
         $row = $script:Vms | Where-Object { $_.ResourceKey -eq $global:Fake.Vm01.ToLowerInvariant() }
         $row | Should -Not -BeNullOrEmpty
         $row.SubscriptionId | Should -Be $global:Fake.S
-        $row.VNetSubscriptionId | Should -Be $global:Fake.H
-        $row.VNetResourceGroup | Should -Be 'rg-hub-net'
-        $row.VNetName | Should -Be 'vnet-hub'
+        $row.ResourceGroup | Should -Be 'rg-app'
+        $row.VNetSubscriptionId | Should -Be $global:Fake.S
+        $row.VNetResourceGroup | Should -Be 'rg-spoke-net'
+        $row.VNetName | Should -Be 'vnet-spoke'
         $row.SubnetName | Should -Be 'snet-workloads'
-        $row.SubnetPrefix | Should -Be '10.0.1.0/24'
+        $row.SubnetPrefix | Should -Be '10.1.1.0/24'
         $row.NetworkAccess | Should -Be 'VNetInjected'
-        $row.PrivateIpAddress | Should -Be '10.0.1.4'
+        $row.PrivateIpAddress | Should -Be '10.1.1.4'
+        $row.Memory_GiB | Should -Be '8'
         $row.CandidateVeeamProtection | Should -Be 'Veeam Backup for Microsoft Azure: Azure VM'
         $row.Tag_Environment | Should -Be 'Prod'
         $row.vCPUs | Should -Be '2'
         $row.PowerState | Should -Be 'VM running'
         $nic = $script:Att | Where-Object { $_.ResourceKey -eq $row.ResourceKey -and $_.AttachmentType -eq 'Nic' }
         $nic.IsPrimary | Should -Be 'True'
-        $nic.VNetSubscriptionId | Should -Be $global:Fake.H
+        $nic.VNetResourceGroup | Should -Be 'rg-spoke-net'
         (Import-Csv (Join-Path $script:OutA 'vms.csv') | Get-Member -MemberType NoteProperty | Measure-Object).Count | Should -BeGreaterThan 17
         $header = (Get-Content (Join-Path $script:OutA 'vms.csv') -TotalCount 1)
         $header | Should -BeLike '"ResourceKey","TenantId","SubscriptionId","SubscriptionName","ResourceGroup","Region","Zones","ResourceName","ResourceType","NetworkAccess","VNetSubscriptionId","VNetResourceGroup","VNetName","SubnetName","SubnetPrefix","PrivateEndpointCount","CandidateVeeamProtection","Tag_Environment","VmSize"*'
@@ -262,6 +300,8 @@ Describe 'Azure environment assessment (mocked Az)' {
         $row.VNetName | Should -Be 'vnet-hub'
         $row.SubnetName | Should -Be 'snet-pe'
         $row.UsedCapacity_GiB | Should -Be '10'
+        $row.ContainerCount | Should -Be '1'
+        $row.FileShareCount | Should -Be '0'
         $row.CandidateVeeamProtection | Should -Be 'Veeam Backup & Replication: object storage backup (Azure Blob)'
         $a = $script:Att | Where-Object { $_.ResourceKey -eq $row.ResourceKey }
         @($a).Count | Should -Be 1
@@ -333,8 +373,79 @@ Describe 'Azure environment assessment (mocked Az)' {
         $e.Module | Should -Be 'cosmos'
     }
 
+    It 'reports PublicDisabled for public access disabled with no private endpoint' {
+        $row = Import-Csv (Join-Path $script:OutA 'storage_accounts.csv') | Where-Object { $_.ResourceKey -eq $global:Fake.SaLocked.ToLowerInvariant() }
+        $row.NetworkAccess | Should -Be 'PublicDisabled'
+        $row.VNetName | Should -Be ''
+        $row.PrivateEndpointCount | Should -Be '0'
+        Resolve-NetworkAccess -PublicNetworkAccess 'Disabled' | Should -Be 'PublicDisabled'
+        Resolve-NetworkAccess -PublicNetworkAccess 'Disabled' -PrivateEndpointCount 1 | Should -Be 'PrivateEndpointOnly'
+        Resolve-NetworkAccess -PublicNetworkAccess 'Enabled' -DefaultAction 'Deny' | Should -Be 'PublicFirewall'
+        Resolve-NetworkAccess -PublicNetworkAccess 'Enabled' -DefaultAction 'Allow' | Should -Be 'Public'
+    }
+
+    It 'gives an attached disk its VM placement and an unattached disk blank network columns with N/A' {
+        $disks = Import-Csv (Join-Path $script:OutA 'disks.csv')
+        $att = $disks | Where-Object { $_.ResourceKey -eq $global:Fake.Disk01.ToLowerInvariant() }
+        $att.ResourceName | Should -Be 'vm01-os'
+        $att.VNetName | Should -Be 'vnet-spoke'
+        $att.SubnetName | Should -Be 'snet-workloads'
+        $att.NetworkAccess | Should -Be 'VNetInjected'
+        $att.Zones | Should -Be '1'
+        $orphan = $disks | Where-Object { $_.ResourceKey -eq $global:Fake.DiskOrphan.ToLowerInvariant() }
+        $orphan.Unattached | Should -Be 'True'
+        $orphan.NetworkAccess | Should -Be 'N/A'
+        $orphan.VNetName | Should -Be ''
+        $orphan.SubnetName | Should -Be ''
+        $orphan.VNetSubscriptionId | Should -Be ''
+    }
+
+    It 'de-duplicates UsedIPs across subnet IP configurations and private endpoint NICs, and counts private endpoints on vNet/subnet rows' {
+        $pe = $script:Subnets | Where-Object { $_.SubnetName -eq 'snet-pe' }
+        $pe.TotalIPs | Should -Be '32'
+        $pe.UsedIPs | Should -Be '2'
+        $pe.AvailableIPs | Should -Be '25'
+        $pe.PrivateEndpointCount | Should -Be '2'
+        $pe.VNetName | Should -Be 'vnet-hub'
+        $vn = Import-Csv (Join-Path $script:OutA 'virtual_networks.csv') | Where-Object { $_.ResourceName -eq 'vnet-hub' }
+        $vn.PrivateEndpointCount | Should -Be '2'
+        $vn.VNetName | Should -Be 'vnet-hub'
+        $vn.NetworkAccess | Should -Be 'N/A'
+    }
+
+    It 'reports native backup coverage including PlatformBuiltIn, with vault rows carrying blank CandidateVeeamProtection' {
+        $cov = Import-Csv (Join-Path $script:OutA 'backup_coverage.csv')
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Vm01.ToLowerInvariant() }).NativeBackup | Should -Be 'RecoveryServicesVault'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Vm01.ToLowerInvariant() }).PolicyName | Should -Be 'DefaultPolicy'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Disk01.ToLowerInvariant() }).NativeBackup | Should -Be 'BackupVault'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.CosG.ToLowerInvariant() }).NativeBackup | Should -Be 'PlatformBuiltIn'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Mi.ToLowerInvariant() }).NativeBackup | Should -Be 'PlatformBuiltIn'
+        ($cov | Where-Object { $_.ResourceKey -eq $global:Fake.Sa.ToLowerInvariant() }).NativeBackup | Should -Be 'None'
+        $vaults = Import-Csv (Join-Path $script:OutA 'backup_vaults.csv')
+        @($vaults).Count | Should -Be 2
+        foreach ($v in $vaults) { $v.CandidateVeeamProtection | Should -Be '' }
+        $item = Import-Csv (Join-Path $script:OutA 'backup_items.csv') | Where-Object { $_.VaultType -eq 'RecoveryServicesVault' }
+        $item.ResourceKey | Should -Be $global:Fake.RsvItem.ToLowerInvariant()
+        $item.ResourceGroup | Should -Be 'rg-backup'
+        $item.ProtectedResourceKey | Should -Be $global:Fake.Vm01.ToLowerInvariant()
+    }
+
+    It 'lists both vault types joined with ";" when both cover a resource' {
+        $script:State.Coverage = @{}
+        Add-CoverageEntry -Key 'k1' -NativeBackup 'RecoveryServicesVault' -VaultName 'rsv' -PolicyName 'p1'
+        Add-CoverageEntry -Key 'k1' -NativeBackup 'BackupVault' -VaultName 'bv' -PolicyName 'p2'
+        $script:State.Outputs['vms'] = New-List
+        $script:State.Outputs['vms'].Add([pscustomobject]@{ ResourceKey = 'k1' })
+        $script:State.Outputs['backup_coverage'] = New-List
+        Add-BackupCoverage
+        $r = $script:State.Outputs['backup_coverage'][0]
+        $r.NativeBackup | Should -Be 'RecoveryServicesVault;BackupVault'
+        $r.VaultName | Should -Be 'rsv;bv'
+    }
+
     It 'builds subnet capacity, summaries and an environment map that fits ConvertTo-Json -Depth 10' {
         $w = $script:Subnets | Where-Object { $_.SubnetName -eq 'snet-workloads' }
+        $w.VNetName | Should -Be 'vnet-spoke'
         $w.TotalIPs | Should -Be '256'
         $w.UsedIPs | Should -Be '1'
         $w.AvailableIPs | Should -Be '250'
@@ -342,11 +453,17 @@ Describe 'Azure environment assessment (mocked Az)' {
         $w.HasStorageServiceEndpoint | Should -Be 'True'
         ($script:Subnets | Where-Object { $_.SubnetName -eq 'GatewaySubnet' }).CanHostVeeamWorkers | Should -Be 'False'
         $env = Import-Csv (Join-Path $script:OutA 'environment_summary.csv')
-        $hubBucket = $env | Where-Object { $_.SubscriptionId -eq $global:Fake.S -and $_.VNetName -eq 'vnet-hub' }
-        $hubBucket.VMs | Should -Be '1'
+        $hubBucket = $env | Where-Object { $_.SubscriptionId -eq $global:Fake.S -and $_.VNetSubscriptionId -eq $global:Fake.H -and $_.VNetName -eq 'vnet-hub' }
+        $hubBucket.VNetResourceGroup | Should -Be 'rg-hub-net'
         $hubBucket.StorageAccounts | Should -Be '1'
         $hubBucket.WorkerCapableSubnets | Should -Be '2'
+        $spokeBucket = $env | Where-Object { $_.SubscriptionId -eq $global:Fake.S -and $_.VNetName -eq 'vnet-spoke' }
+        $spokeBucket.VMs | Should -Be '1'
+        $spokeBucket.SqlManagedInstances | Should -Be '1'
+        $spokeBucket.WorkerCapableSubnets | Should -Be '1'
         ($env | Where-Object { $_.VNetName -eq '(none)' }).CosmosAccounts | Should -Be '2'
+        $env[0].PSObject.Properties.Name | Should -Contain 'AksNodes'
+        $env[0].PSObject.Properties.Name | Should -Contain 'AvsHosts'
         $json = Get-Content (Join-Path $script:OutA 'environment_map.json') -Raw | ConvertFrom-Json
         $res = $json.Subscriptions | ForEach-Object { $_.Regions } | ForEach-Object { $_.VNets } | ForEach-Object { $_.Subnets } | ForEach-Object { $_.Resources }
         @($res | Where-Object { $_.ResourceKey -eq $global:Fake.Sa.ToLowerInvariant() }).Count | Should -Be 1
@@ -357,25 +474,62 @@ Describe 'Azure environment assessment (mocked Az)' {
     }
 }
 
+Describe 'AKS module (mocked Az)' {
+    BeforeAll {
+        Set-FakeMocks
+        $S = $global:Fake.S
+        $script:AksId = "/subscriptions/$S/resourceGroups/rg-aks/providers/Microsoft.ContainerService/managedClusters/aks01"
+        $snWork = "/subscriptions/$S/resourceGroups/rg-spoke-net/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-workloads"
+        $snMi = "/subscriptions/$S/resourceGroups/rg-spoke-net/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-sqlmi"
+        $global:FakeAks = [pscustomobject]@{
+            Id = $script:AksId; Name = 'aks01'; ResourceGroupName = 'rg-aks'; Location = 'westeurope'
+            CurrentKubernetesVersion = '1.30.5'; NodeResourceGroup = 'MC_rg-aks_aks01'
+            NetworkProfile = @{ NetworkPlugin = 'azure' }
+            AgentPoolProfiles = @(
+                [pscustomobject]@{ Name = 'system'; Mode = 'System'; Count = 3; VmSize = 'Standard_D4s_v5'; OsType = 'Linux'; VnetSubnetID = $snWork }
+                [pscustomobject]@{ Name = 'user2'; Mode = 'User'; Count = 2; VmSize = 'Standard_D8s_v5'; OsType = 'Linux'; VnetSubnetID = $snMi }
+                [pscustomobject]@{ Name = 'user3'; Mode = 'User'; Count = 1; VmSize = 'Standard_D2s_v5'; OsType = 'Linux' }
+            )
+        }
+        Mock Get-AzAksCluster { if ($global:FakeSub -eq $global:Fake.S) { $global:FakeAks } }
+        $script:OutK = Join-Path $TestDrive 'runK'
+        $global:FakeSub = $null
+        Invoke-AzureEnvironmentAssessment -AcceptDisclaimer -UseExistingContext -OutputPath $script:OutK -Modules vm, vnet, aks 6>$null | Out-Null
+        $script:Pools = Import-Csv (Join-Path $script:OutK 'aks_node_pools.csv')
+    }
+
+    It 'places each AKS node pool on its own subnet, and inherits the cluster placement only when it has none' {
+        $c = Import-Csv (Join-Path $script:OutK 'aks_clusters.csv') | Where-Object { $_.ResourceKey -eq $script:AksId.ToLowerInvariant() }
+        $c.NetworkAccess | Should -Be 'VNetInjected'
+        $c.SubnetName | Should -Be 'snet-workloads'
+        $c.TotalNodeCount | Should -Be '6'
+        ($script:Pools | Where-Object { $_.NodePoolName -eq 'system' }).SubnetName | Should -Be 'snet-workloads'
+        ($script:Pools | Where-Object { $_.NodePoolName -eq 'user2' }).SubnetName | Should -Be 'snet-sqlmi'
+        $u3 = $script:Pools | Where-Object { $_.NodePoolName -eq 'user3' }
+        $u3.SubnetName | Should -Be 'snet-workloads'
+        $u3.ResourceKey | Should -Be ($script:AksId + '/agentPools/user3').ToLowerInvariant()
+    }
+}
+
 Describe 'Anonymised run (mocked Az)' {
     BeforeAll {
         Set-FakeMocks
         $script:Salt = 'pester-salt-0001'
         $script:OutB = Join-Path $TestDrive 'runB'
         Invoke-FakeRun -Path $script:OutB -Anonymise -Salt $script:Salt
-        $script:HubHash = Get-ExpectedHash -Salt $script:Salt -Value 'vnet-hub'
+        $script:SpokeHash = Get-ExpectedHash -Salt $script:Salt -Value 'vnet-spoke'
     }
 
     It 'hashes the same vNet name identically in vms.csv, subnets.csv and network_attachments.csv' {
         $vm = Import-Csv (Join-Path $script:OutB 'vms.csv') | Where-Object { $_.ResourceName -eq (Get-ExpectedHash -Salt $script:Salt -Value 'vm01') }
-        $vm.VNetName | Should -Be $script:HubHash
+        $vm.VNetName | Should -Be $script:SpokeHash
         $vm.ResourceKey | Should -Be (Get-ExpectedHash -Salt $script:Salt -Value $global:Fake.Vm01)
         $vm.SubscriptionId | Should -Be $global:Fake.S
-        $vm.VNetSubscriptionId | Should -Be $global:Fake.H
+        $vm.VNetSubscriptionId | Should -Be $global:Fake.S
         $vm.Region | Should -Be 'westeurope'
         $vm.NetworkAccess | Should -Be 'VNetInjected'
-        (Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.VNetName -eq $script:HubHash }).Count | Should -Be 3
-        @(Import-Csv (Join-Path $script:OutB 'network_attachments.csv') | Where-Object { $_.VNetName -eq $script:HubHash }).Count | Should -Be 2
+        @(Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.VNetName -eq $script:SpokeHash }).Count | Should -Be 2
+        @(Import-Csv (Join-Path $script:OutB 'network_attachments.csv') | Where-Object { $_.VNetName -eq $script:SpokeHash }).Count | Should -Be 2
         $sn = Import-Csv (Join-Path $script:OutB 'subnets.csv') | Where-Object { $_.SubnetName -eq (Get-ExpectedHash -Salt $script:Salt -Value 'snet-workloads') }
         $sn.SubnetPrefix | Should -Match '^[0-9a-f]{12}/24$'
         $sn.AvailableIPs | Should -Be '250'
@@ -390,7 +544,7 @@ Describe 'Anonymised run (mocked Az)' {
             if (-not $text) { continue }
             $text | Should -Not -Match '(?i)/subscriptions/' -Because $f.Name
             $text | Should -Not -Match '(?i)/providers/' -Because $f.Name
-            foreach ($raw in @('vnet-hub', 'snet-workloads', 'stspoke01', 'sqlmi01', 'cosmos-gremlin', 'Contoso-Hub', 'rg-hub-net', '10.0.1.4', 'contoso.onmicrosoft.com', $script:Salt)) {
+            foreach ($raw in @('vnet-hub', 'vnet-spoke', 'snet-workloads', 'stspoke01', 'sqlmi01', 'cosmos-gremlin', 'Contoso-Hub', 'rg-hub-net', '10.1.1.4', 'contoso.onmicrosoft.com', 'rsv-spoke', 'DefaultPolicy', $script:Salt)) {
                 $text.Contains($raw) | Should -BeFalse -Because "$($f.Name) must not contain '$raw'"
             }
             $f.Name | Should -Not -Match 'vnet|stspoke|contoso'
@@ -398,6 +552,15 @@ Describe 'Anonymised run (mocked Az)' {
         $m = Get-Content (Join-Path $script:OutB 'manifest.json') -Raw | ConvertFrom-Json
         $m.Anonymised | Should -BeTrue
         $m.Parameters.PSObject.Properties.Name | Should -Not -Contain 'AnonymiseSalt'
+    }
+
+    It 'scrubs errors.csv messages by hashing masked values but keeps ordinary words such as Forbidden' {
+        $e = Import-Csv (Join-Path $script:OutB 'errors.csv') | Where-Object { $_.Operation -eq 'Get-AzStorageBlobServiceProperty' }
+        $e | Should -Not -BeNullOrEmpty
+        $e.Message | Should -BeLike "*'Forbidden'*"
+        $e.Message | Should -BeLike ("*'" + (Get-ExpectedHash -Salt $script:Salt -Value 'stspoke01') + "'*")
+        $e.Message | Should -Not -BeLike '*stspoke01*'
+        $e.ResourceKey | Should -Be (Get-ExpectedHash -Salt $script:Salt -Value $global:Fake.Sa)
     }
 }
 

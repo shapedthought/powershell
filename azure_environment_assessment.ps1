@@ -214,7 +214,7 @@ $script:PlacementColumns = @(
 
 # Module-specific columns of every placement-based output (after placement and Tag_ columns).
 $script:OutputSchemas = [ordered]@{
-    vms                   = @('VmSize', 'vCPUs', 'MemoryGiB', 'OsType', 'ImagePublisher', 'ImageOffer', 'ImageSku', 'HyperVGeneration',
+    vms                   = @('VmSize', 'vCPUs', 'Memory_GiB', 'OsType', 'ImagePublisher', 'ImageOffer', 'ImageSku', 'HyperVGeneration',
         'SecurityType', 'PowerState', 'AvailabilitySet', 'ProximityPlacementGroup', 'DiskCount', 'OsDiskSku', 'OsDiskSize_GiB',
         'DataDiskSize_GiB', 'TotalProvisioned_GiB', 'DiskSkus', 'HasUltraDisk', 'HasPremiumV2Disk', 'HasEphemeralOsDisk',
         'HasUnmanagedDisk', 'HasSharedDisk', 'DiskEncryptionTypes', 'NicCount', 'PrivateIpAddress', 'HasPublicIp')
@@ -268,10 +268,10 @@ $script:PlainSchemas = [ordered]@{
     environment_summary     = @('SubscriptionId', 'SubscriptionName', 'Region', 'VNetSubscriptionId', 'VNetResourceGroup', 'VNetName',
         'NetworkAccessMix', 'VMs', 'VM_Provisioned_GiB', 'SqlDatabases', 'SqlDb_Used_GiB', 'SqlManagedInstances', 'SqlMi_Used_GiB',
         'CosmosAccounts', 'Cosmos_Data_GiB', 'FileShares', 'FileShare_Used_GiB', 'StorageAccounts', 'Storage_Blob_GiB',
-        'AksClusters', 'AvsPrivateClouds', 'WorkerCapableSubnets')
+        'AksClusters', 'AksNodes', 'AvsPrivateClouds', 'AvsHosts', 'WorkerCapableSubnets')
     region_summary          = @('Region', 'Subscriptions', 'VNets', 'VMs', 'VM_Provisioned_GiB', 'SqlDatabases', 'SqlDb_Used_GiB',
         'SqlManagedInstances', 'SqlMi_Used_GiB', 'CosmosAccounts', 'Cosmos_Data_GiB', 'FileShares', 'FileShare_Used_GiB',
-        'StorageAccounts', 'Storage_Blob_GiB', 'AksClusters', 'AvsPrivateClouds', 'WorkerCapableSubnets', 'HasWorkerCapableSubnet')
+        'StorageAccounts', 'Storage_Blob_GiB', 'AksClusters', 'AksNodes', 'AvsPrivateClouds', 'AvsHosts', 'WorkerCapableSubnets', 'HasWorkerCapableSubnet')
     errors                  = @('Timestamp', 'SubscriptionId', 'Module', 'ResourceKey', 'Operation', 'Message')
 }
 
@@ -279,15 +279,17 @@ $script:OutputOrder = @($script:OutputSchemas.Keys) + @($script:PlainSchemas.Key
 
 # Workload outputs that feed the summaries: count column, capacity column, source column.
 $script:SummarySources = [ordered]@{
-    vms                   = @{ Count = 'VMs'; Size = 'VM_Provisioned_GiB'; Column = 'TotalProvisioned_GiB' }
-    sql_databases         = @{ Count = 'SqlDatabases'; Size = 'SqlDb_Used_GiB'; Column = 'Used_GiB' }
-    sql_managed_instances = @{ Count = 'SqlManagedInstances'; Size = 'SqlMi_Used_GiB'; Column = 'StorageUsed_GiB' }
-    cosmos_accounts       = @{ Count = 'CosmosAccounts'; Size = 'Cosmos_Data_GiB'; Column = 'DataUsage_GiB' }
-    file_shares           = @{ Count = 'FileShares'; Size = 'FileShare_Used_GiB'; Column = 'Used_GiB' }
-    storage_accounts      = @{ Count = 'StorageAccounts'; Size = 'Storage_Blob_GiB'; Column = 'BlobCapacity_GiB' }
-    aks_clusters          = @{ Count = 'AksClusters'; Size = $null; Column = $null }
-    avs_private_clouds    = @{ Count = 'AvsPrivateClouds'; Size = $null; Column = $null }
+    vms                   = @{ Count = 'VMs'; Size = 'VM_Provisioned_GiB'; Column = 'TotalProvisioned_GiB'; Unit = 'GiB' }
+    sql_databases         = @{ Count = 'SqlDatabases'; Size = 'SqlDb_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB' }
+    sql_managed_instances = @{ Count = 'SqlManagedInstances'; Size = 'SqlMi_Used_GiB'; Column = 'StorageUsed_GiB'; Unit = 'GiB' }
+    cosmos_accounts       = @{ Count = 'CosmosAccounts'; Size = 'Cosmos_Data_GiB'; Column = 'DataUsage_GiB'; Unit = 'GiB' }
+    file_shares           = @{ Count = 'FileShares'; Size = 'FileShare_Used_GiB'; Column = 'Used_GiB'; Unit = 'GiB' }
+    storage_accounts      = @{ Count = 'StorageAccounts'; Size = 'Storage_Blob_GiB'; Column = 'BlobCapacity_GiB'; Unit = 'GiB' }
+    aks_clusters          = @{ Count = 'AksClusters'; Size = 'AksNodes'; Column = 'TotalNodeCount'; Unit = 'Nodes' }
+    avs_private_clouds    = @{ Count = 'AvsPrivateClouds'; Size = 'AvsHosts'; Column = 'TotalHosts'; Unit = 'Hosts' }
 }
+# Azure SQL and Cosmos DB have automatic platform backups when no vault covers them.
+$script:PlatformBackupOutputs = @('sql_databases', 'sql_managed_instances', 'cosmos_accounts')
 $script:CoverageOutputs = @('vms', 'disks', 'sql_databases', 'sql_managed_instances', 'cosmos_accounts', 'file_shares', 'storage_accounts', 'aks_clusters')
 
 # Column classes used by -Anonymise (applied once, at export time, to every output row).
@@ -487,6 +489,7 @@ function Get-HttpStatusCode {
         $depth++
     }
     $msg = $texts -join ' '
+    if ($msg -match '\b401\b|Unauthorized|AuthenticationFailed') { return 401 }
     if ($msg -match '\b403\b|Forbidden|AuthorizationFailed') { return 403 }
     if ($msg -match '\b404\b|NotFound') { return 404 }
     if ($msg -match '\b429\b|TooManyRequests') { return 429 }
@@ -499,8 +502,9 @@ function Get-HttpStatusCode {
 }
 
 function Invoke-WithRetry {
-    <# Runs an Azure call; retries HTTP 429 and 5xx up to $script:MaxRetries times with exponential
-       backoff. 403/404 and everything else are rethrown immediately. #>
+    <# Runs an Azure call; retries HTTP 429 and 5xx up to $script:MaxRetries (4) retries, i.e. 5
+       attempts in total, with exponential backoff. 401/403/404 and everything else are rethrown
+       immediately. #>
     [CmdletBinding()]
     param([Parameter(Mandatory = $true)][scriptblock]$ScriptBlock, [string]$Operation = 'Azure call')
     $retryNumber = 0
@@ -524,6 +528,9 @@ function Initialize-Anonymiser {
     param([switch]$Enabled, [string]$Salt)
     $script:AnonymiseEnabled = [bool]$Enabled
     $script:Hmac = $null
+    $script:MaskRegistry = @{}
+    $script:MaskRegexCount = -1
+    $script:MaskRegex = $null
     if (-not $Enabled) { return }
     if ($Salt) {
         $key = [System.Text.Encoding]::UTF8.GetBytes($Salt)
@@ -551,7 +558,12 @@ function Get-Mask {
     $hash = $script:Hmac.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($s))
     $sb = New-Object System.Text.StringBuilder
     for ($i = 0; $i -lt 6; $i++) { [void]$sb.Append($hash[$i].ToString('x2')) }
-    return $sb.ToString()
+    $masked = $sb.ToString()
+    # Remember every raw value masked in this run, so error messages and the manifest OutputPath
+    # can have exactly those values replaced (Protect-Message).
+    if ($null -eq $script:MaskRegistry) { $script:MaskRegistry = @{} }
+    if (-not $script:MaskRegistry.ContainsKey($s)) { $script:MaskRegistry[$s] = $masked }
+    return $masked
 }
 
 function Get-MaskedPrefix {
@@ -579,12 +591,21 @@ function Get-MaskedList {
 }
 
 function Protect-Message {
-    <# Scrubs resource IDs and quoted names out of an error message when anonymising. #>
+    <# When anonymising: replaces every raw value that has been masked during the run (names, IDs,
+       IPs, prefixes, tag values) with its hash, longest first and case-insensitively, then hashes any
+       remaining resource-ID path. Ordinary words (for example 'Forbidden') are left alone. #>
     param([string]$Message)
     if (-not $script:AnonymiseEnabled -or -not $Message) { return $Message }
-    $m = [regex]::Replace($Message, '(?i)/subscriptions/[^\s''"\),;]+', { param($x) Get-Mask $x.Value })
-    $m = [regex]::Replace($m, "'([^']+)'", { param($x) "'" + (Get-Mask $x.Groups[1].Value) + "'" })
-    $m = [regex]::Replace($m, '"([^"]+)"', { param($x) '"' + (Get-Mask $x.Groups[1].Value) + '"' })
+    $m = $Message
+    if ($script:MaskRegistry -and $script:MaskRegistry.Count -gt 0) {
+        if ($script:MaskRegexCount -ne $script:MaskRegistry.Count) {
+            $keys = @($script:MaskRegistry.Keys | Sort-Object -Property Length -Descending | ForEach-Object { [regex]::Escape([string]$_) })
+            $script:MaskRegex = New-Object System.Text.RegularExpressions.Regex ('(?<![A-Za-z0-9_\-])(?:' + ($keys -join '|') + ')(?![A-Za-z0-9_\-])'), 'IgnoreCase'
+            $script:MaskRegexCount = $script:MaskRegistry.Count
+        }
+        $m = $script:MaskRegex.Replace($m, { param($x) $script:MaskRegistry[$x.Value] })
+    }
+    $m = [regex]::Replace($m, '(?i)/subscriptions/[^\s''"\),;]+', { param($x) Get-Mask $x.Value })
     return $m
 }
 
@@ -683,7 +704,8 @@ function Get-MetricValue {
 
 function Resolve-NetworkAccess {
     <# Exactly one of VNetInjected, PrivateEndpointOnly, PrivateEndpoint+Public, VNetRules,
-       PublicFirewall, Public, N/A (in that precedence order). #>
+       PublicFirewall (IP rules only, including default Deny with zero rules), Public,
+       PublicDisabled (public access disabled and no private endpoint), N/A. #>
     param(
         [bool]$HasNetworkSurface = $true,
         [bool]$VNetInjected = $false,
@@ -700,9 +722,7 @@ function Resolve-NetworkAccess {
         if ($publicDisabled) { return 'PrivateEndpointOnly' }
         return 'PrivateEndpoint+Public'
     }
-    # Public access disabled and no private endpoint: no reachable endpoint. Not covered by the
-    # requested list; reported as N/A (see notes).
-    if ($publicDisabled) { return 'N/A' }
+    if ($publicDisabled) { return 'PublicDisabled' }
     if ($DefaultAction -eq 'Deny') {
         if ($VNetRuleCount -gt 0) { return 'VNetRules' }
         return 'PublicFirewall'
@@ -780,6 +800,7 @@ function New-WorkloadRecord {
             InheritFrom         = $null
             SelfSubnetId        = $null
             SelfVNetId          = $null
+            SelfPeCount         = 0
         }
         Columns          = $cols
     }
@@ -871,6 +892,14 @@ function Get-NetworkBackbone {
             $connections = @(Get-Prop $pe 'PrivateLinkServiceConnections') + @(Get-Prop $pe 'ManualPrivateLinkServiceConnections')
             $subnetId = [string](Get-Prop $pe 'Subnet.Id')
             $info = @{ Id = [string]$pe.Id; Name = [string]$pe.Name; SubnetId = $subnetId; PrivateIp = $privateIp; NicIds = $nicIds; IpCount = $ipCount }
+            # Distinct IPv4 IP-configuration IDs of this private endpoint's NIC(s), for UsedIPs de-duplication.
+            $ipcIds = New-List
+            foreach ($n in $nicIds) {
+                $nicInfo = $script:State.Nics[(ConvertTo-Lower $n)]
+                if ($nicInfo) { foreach ($k in $nicInfo.IpVersions.Keys) { if ($nicInfo.IpVersions[$k] -ne 'IPv6') { $ipcIds.Add([string]$k) } } }
+            }
+            if ($ipcIds.Count -eq 0) { for ($i = 0; $i -lt $ipCount; $i++) { $ipcIds.Add((ConvertTo-Lower $info.Id) + '#ip' + $i) } }
+            $info.IpConfigIds = $ipcIds
             $sk = ConvertTo-Lower $subnetId
             if ($sk) {
                 if (-not $script:State.PeBySubnet.ContainsKey($sk)) { $script:State.PeBySubnet[$sk] = New-List }
@@ -927,6 +956,9 @@ function Get-VNetInventory {
             $c.PeeredVNets = $peerNames -join ';'
             $c.PeeringStates = $peerStates -join ';'
             $c.SubnetCount = Get-Count (Get-Prop $vn 'Subnets')
+            $vnPe = 0
+            foreach ($sn in @(Get-Prop $vn 'Subnets')) { $l = $script:State.PeBySubnet[(ConvertTo-Lower $sn.Id)]; if ($l) { $vnPe += $l.Count } }
+            $rec.Net.SelfPeCount = $vnPe
             $records.Add($rec)
         }
         catch { Add-ErrorRow -SubscriptionId $sub.Id -Module 'vnet' -ResourceKey $vn.Id -Operation 'BuildVNetRow' -Message $_.Exception.Message }
@@ -944,28 +976,27 @@ function Get-VNetInventory {
                 foreach ($p in $v4) {
                     if ($p -match '/(\d+)$') { $len = [int]$Matches[1]; $lengths.Add($len); $total += [math]::Pow(2, 32 - $len) }
                 }
-                # Used IPv4 addresses: IP configurations in the subnet, plus private endpoint NICs that
-                # are not already represented by an IP configuration (avoids double counting).
-                $used = 0
-                $nicSeen = @{}
+                # UsedIPs: distinct IPv4 IP-configuration IDs across the subnet's IP configurations and
+                # its private endpoints' NIC IP configurations (the two sets overlap).
+                $ipcSet = @{}
                 foreach ($ipc in @(Get-Prop $sn 'IpConfigurations')) {
                     $ipcId = ConvertTo-Lower ([string]$ipc.Id)
                     $nicId = $ipcId -replace '/ipconfigurations/.*$', ''
-                    $nicSeen[$nicId] = $true
                     $nicInfo = $script:State.Nics[$nicId]
                     if ($nicInfo -and $nicInfo.IpVersions.ContainsKey($ipcId) -and $nicInfo.IpVersions[$ipcId] -eq 'IPv6') { continue }
-                    $used++
+                    $ipcSet[$ipcId] = $true
                 }
                 $peList = $script:State.PeBySubnet[(ConvertTo-Lower $sn.Id)]
                 $peCount = 0
                 if ($peList) {
                     foreach ($pe in $peList) {
                         $peCount++
-                        $already = $false
-                        foreach ($n in $pe.NicIds) { if ($nicSeen.ContainsKey((ConvertTo-Lower $n))) { $already = $true } }
-                        if (-not $already) { $used += $pe.IpCount }
+                        foreach ($k in $pe.IpConfigIds) { $ipcSet[$k] = $true }
                     }
                 }
+                $used = $ipcSet.Count
+                $srec.Net.SelfPeCount = $peCount
+                # Azure reserves 5 addresses in every IPv4 prefix.
                 $available = 0
                 if ($total -gt 0) { $available = [math]::Max(0, $total - (5 * $v4.Count) - $used) }
                 $delegations = @(Get-Prop $sn 'Delegations' | ForEach-Object { [string](Get-Prop $_ 'ServiceName') })
@@ -1134,7 +1165,7 @@ function Get-VmInventory {
 
             $c = $rec.Columns
             $c.VmSize = $vmSize
-            if ($sku) { $c.vCPUs = $sku.vCPUs; $c.MemoryGiB = $sku.MemoryGiB }
+            if ($sku) { $c.vCPUs = $sku.vCPUs; if ($null -ne $sku.MemoryGiB) { $c.Memory_GiB = [math]::Round([double]$sku.MemoryGiB, 2) } }
             $c.OsType = [string](Get-Prop $vm 'StorageProfile.OsDisk.OsType')
             $c.ImagePublisher = [string](Get-Prop $vm 'StorageProfile.ImageReference.Publisher')
             $c.ImageOffer = [string](Get-Prop $vm 'StorageProfile.ImageReference.Offer')
@@ -1171,7 +1202,8 @@ function Get-VmInventory {
             $rec = New-WorkloadRecord -Output 'disks' -Module 'vm' -ResourceId $d.Id -Subscription $Subscription -ResourceGroup $d.ResourceGroupName `
                 -Region $d.Location -Zones (Get-Prop $d 'Zones') -ResourceName $d.Name -ResourceType 'Microsoft.Compute/disks' -Tags (Get-Prop $d 'Tags') -Candidate $script:WorkloadMap.vm
             $managedBy = [string](Get-Prop $d 'ManagedBy')
-            $rec.Net.ExplicitAccess = 'N/A'
+            # Child row: an attached disk inherits the VM's placement; an unattached disk has blank
+            # network columns and NetworkAccess N/A.
             if ($managedBy) { $rec.Net.InheritFrom = $managedBy } else { $rec.Net.HasSurface = $false }
             $vmName = ''
             if ($managedBy) {
@@ -1247,6 +1279,12 @@ function Get-SqlDbInventory {
                 $r.Net.IpRuleCount = $ipRules
             }
 
+            # Hidden parent record (Microsoft.Sql/servers): not exported, but child rows (elastic pools)
+            # inherit their placement from it.
+            $srvRec = New-WorkloadRecord -Output '' -Module 'sqldb' -ResourceId $srvId -Subscription $Subscription -ResourceGroup $rg `
+                -Region (Get-Prop $srv 'Location') -ResourceName $sn -ResourceType 'Microsoft.Sql/servers' -Tags (Get-Prop $srv 'Tags') -Candidate $script:WorkloadMap.sqldb
+            & $applyNet $srvRec
+            $records.Add($srvRec)
             $dbs = @(Invoke-WithRetry -Operation 'Get-AzSqlDatabase' -ScriptBlock { Get-AzSqlDatabase -ResourceGroupName $rg -ServerName $sn -ErrorAction Stop })
             $poolDbCount = @{}
             foreach ($db in $dbs) {
@@ -1323,7 +1361,7 @@ function Get-SqlDbInventory {
                 $pId = [string](Get-Prop $p 'ResourceId', 'Id')
                 $rec = New-WorkloadRecord -Output 'sql_elastic_pools' -Module 'sqldb' -ResourceId $pId -Subscription $Subscription -ResourceGroup $rg `
                     -Region (Get-Prop $p 'Location') -ResourceName "$sn/$pName" -ResourceType 'Microsoft.Sql/servers/elasticPools' -Tags (Get-Prop $p 'Tags') -Candidate $script:WorkloadMap.sqldb
-                & $applyNet $rec
+                $rec.Net.InheritFrom = $srvId
                 $c = $rec.Columns
                 $c.ServerName = $sn
                 $c.ElasticPoolName = $pName
@@ -1466,9 +1504,15 @@ function Get-CosmosInventory {
     $resources = Get-SubscriptionResources -Subscription $Subscription
     $accounts = New-List; $others = New-List
     foreach ($r in $resources) {
-        $t = ConvertTo-Lower ([string]$r.ResourceType)
-        if ($t -eq 'microsoft.documentdb/databaseaccounts') { $accounts.Add($r) }
-        elseif ($t -eq 'microsoft.documentdb/mongoclusters' -or $t -eq 'microsoft.dbforpostgresql/servergroupsv2') { $others.Add($r) }
+        if ((ConvertTo-Lower ([string]$r.ResourceType)) -eq 'microsoft.documentdb/databaseaccounts') { $accounts.Add($r) }
+    }
+    # mongoClusters and serverGroupsv2 have no dedicated Az cmdlets: read them with
+    # Get-AzResource -ResourceType ... -ExpandProperties.
+    foreach ($rt in @('Microsoft.DocumentDB/mongoClusters', 'Microsoft.DBforPostgreSQL/serverGroupsv2')) {
+        try {
+            foreach ($x in @(Invoke-WithRetry -Operation "Get-AzResource $rt" -ScriptBlock { Get-AzResource -ResourceType $rt -ExpandProperties -ErrorAction Stop })) { $others.Add($x) }
+        }
+        catch { Add-ErrorRow -SubscriptionId $subId -Module 'cosmos' -Operation "Get-AzResource -ResourceType $rt" -Message $_.Exception.Message }
     }
     foreach ($r in $accounts) {
         $rid = [string]$r.ResourceId
@@ -1535,7 +1579,7 @@ function Get-CosmosInventory {
     foreach ($r in $others) {
         $rid = [string]$r.ResourceId
         try {
-            $full = Invoke-WithRetry -Operation 'Get-AzResource -ExpandProperties' -ScriptBlock { Get-AzResource -ResourceId $rid -ExpandProperties -ErrorAction Stop }
+            $full = $r
             $api = Get-CosmosApiKind -ResourceType ([string]$r.ResourceType) -Kind '' -Capabilities @()
             $rec = New-WorkloadRecord -Output 'cosmos_accounts' -Module 'cosmos' -ResourceId $rid -Subscription $Subscription -ResourceGroup $r.ResourceGroupName `
                 -Region $r.Location -ResourceName $r.Name -ResourceType ([string]$r.ResourceType) -Tags (Get-Prop $r 'Tags') -Candidate $script:CosmosProtection[$api]
@@ -1549,7 +1593,8 @@ function Get-CosmosInventory {
             $keyType = 'ServiceManaged'
             if (Get-Prop $full 'Properties.encryption.customerManagedKeyEncryption', 'Properties.dataEncryption.primaryKeyUri') { $keyType = 'CustomerManaged' }
             $c.KeyType = $keyType
-            $c.ProtectionBlockers = Get-CosmosProtectionBlockers -ApiKind $api -BackupPolicyType '' -MultiRegionWrites $false -KeyType $keyType
+            # Protection blockers apply to Microsoft.DocumentDB/databaseAccounts only.
+            $c.ProtectionBlockers = ''
             $c.RepositoryBackupSupported = (@('PostgreSQL', 'MongoDB') -contains $api)
             $c.PublicNetworkAccess = $pna
             $records.Add($rec)
@@ -1572,6 +1617,12 @@ function Get-FileShareInventory {
         $rg = [string]$sa.ResourceGroupName
         $san = [string]$sa.StorageAccountName
         try {
+            # Hidden parent record for the storage account (not exported): shares inherit from it even
+            # when the blob module is not selected.
+            $parent = New-WorkloadRecord -Output '' -Module 'files' -ResourceId $sa.Id -Subscription $Subscription -ResourceGroup $rg `
+                -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName $san -ResourceType 'Microsoft.Storage/storageAccounts' -Tags (Get-Prop $sa 'Tags') -Candidate $script:WorkloadMap.files
+            Set-StorageAccountNetwork -Record $parent -StorageAccount $sa -GroupFilter $null
+            $records.Add($parent)
             $softDeleteEnabled = $null; $softDeleteDays = $null
             try {
                 $fsp = Invoke-WithRetry -Operation 'Get-AzStorageFileServiceProperty' -ScriptBlock { Get-AzStorageFileServiceProperty -ResourceGroupName $rg -StorageAccountName $san -ErrorAction Stop }
@@ -1595,7 +1646,7 @@ function Get-FileShareInventory {
                 if (-not $shareId) { $shareId = [string]$sa.Id + '/fileServices/default/shares/' + $shareName }
                 $rec = New-WorkloadRecord -Output 'file_shares' -Module 'files' -ResourceId $shareId -Subscription $Subscription -ResourceGroup $rg `
                     -Region (Get-Prop $sa 'PrimaryLocation', 'Location') -ResourceName "$san/$shareName" -ResourceType 'Microsoft.Storage/storageAccounts/fileServices/shares' -Tags (Get-Prop $sa 'Tags') -Candidate $script:WorkloadMap.files
-                Set-StorageAccountNetwork -Record $rec -StorageAccount $sa -GroupFilter @('file', 'file_secondary')
+                $rec.Net.InheritFrom = [string]$sa.Id
                 $c = $rec.Columns
                 $c.StorageAccountName = $san
                 $c.ShareName = $shareName
@@ -1678,6 +1729,7 @@ function Get-StorageAccountInventory {
                     # ARM (management-plane) container listing: names/flags only, never blob contents.
                     $containers = @(Invoke-WithRetry -Operation 'Get-AzRmStorageContainer' -ScriptBlock { Get-AzRmStorageContainer -ResourceGroupName $rg -StorageAccountName $san -ErrorAction Stop })
                     $containerNames = @($containers | ForEach-Object { [string]$_.Name })
+                    $c.ContainerCount = $containers.Count
                     foreach ($ct in $containers) { if ((Get-Prop $ct 'HasImmutabilityPolicy') -eq $true -or (Get-Prop $ct 'HasLegalHold') -eq $true) { $containerImmutability = $true } }
                 }
                 catch { Add-ErrorRow -SubscriptionId $subId -Module 'blob' -ResourceKey $saId -Operation 'Get-AzRmStorageContainer' -Message $_.Exception.Message }
@@ -1690,15 +1742,21 @@ function Get-StorageAccountInventory {
             if ($hasBlob) {
                 $blobSvc = $saId + '/blobServices/default'
                 $c.BlobCapacity_GiB = ConvertTo-GiB (Get-MetricValue -ResourceId $blobSvc -MetricName 'BlobCapacity' -Module 'blob' -SubscriptionId $subId -ResourceKey $saId)
-                $cc = Get-MetricValue -ResourceId $blobSvc -MetricName 'ContainerCount' -Module 'blob' -SubscriptionId $subId -ResourceKey $saId
-                if ($null -ne $cc) { $c.ContainerCount = [int64]$cc }
             }
+            else { $c.ContainerCount = 0 }
             if ($hasFile) {
                 $fileSvc = $saId + '/fileServices/default'
                 $c.FileCapacity_GiB = ConvertTo-GiB (Get-MetricValue -ResourceId $fileSvc -MetricName 'FileCapacity' -Module 'blob' -SubscriptionId $subId -ResourceKey $saId)
-                $fc = Get-MetricValue -ResourceId $fileSvc -MetricName 'FileShareCount' -Module 'blob' -SubscriptionId $subId -ResourceKey $saId
-                if ($null -ne $fc) { $c.FileShareCount = [int64]$fc }
+                try {
+                    # Counted from the ARM share listing (snapshots and soft-deleted shares excluded).
+                    $shares = @(Invoke-WithRetry -Operation 'Get-AzRmStorageShare' -ScriptBlock { Get-AzRmStorageShare -ResourceGroupName $rg -StorageAccountName $san -ErrorAction Stop })
+                    $n = 0
+                    foreach ($sh in $shares) { if (-not (Get-Prop $sh 'SnapshotTime') -and -not (Get-Prop $sh 'Deleted')) { $n++ } }
+                    $c.FileShareCount = $n
+                }
+                catch { Add-ErrorRow -SubscriptionId $subId -Module 'blob' -ResourceKey $saId -Operation 'Get-AzRmStorageShare' -Message $_.Exception.Message }
             }
+            else { $c.FileShareCount = 0 }
             $accountImmutable = [bool](Get-Prop $sa 'ImmutableStorageWithVersioning.Enabled')
             if ($accountImmutable) { $c.Immutability = 'AccountVersionLevel' }
             elseif ($containerImmutability) { $c.Immutability = 'ContainerPolicyOrLegalHold' }
@@ -1757,9 +1815,11 @@ function Get-AksInventory {
                 $pName = [string](Get-Prop $p 'Name')
                 $prec = New-WorkloadRecord -Output 'aks_node_pools' -Module 'aks' -ResourceId ($kid + '/agentPools/' + $pName) -Subscription $Subscription -ResourceGroup $k.ResourceGroupName `
                     -Region $k.Location -Zones (Get-Prop $p 'AvailabilityZones') -ResourceName "$($k.Name)/$pName" -ResourceType 'Microsoft.ContainerService/managedClusters/agentPools' -Tags (Get-Prop $k 'Tags') -Candidate $script:WorkloadMap.aks
-                $prec.Net.VNetInjected = $true
-                $sid = [string](Get-Prop $p 'VnetSubnetID', 'VnetSubnetId')
-                if ($sid) { $prec.Net.NodePoolSubnets.Add($sid) }
+                # A node pool can sit on its own subnet: place it there, and inherit the
+                # cluster's placement only when the pool has no subnet of its own.
+                $poolSid = [string](Get-Prop $p 'VnetSubnetID', 'VnetSubnetId')
+                if ($poolSid) { $prec.Net.VNetInjected = $true; $prec.Net.NodePoolSubnets.Add($poolSid) }
+                else { $prec.Net.InheritFrom = $kid }
                 $pc = $prec.Columns
                 $pc.ClusterName = [string]$k.Name
                 $pc.NodePoolName = $pName
@@ -1905,6 +1965,13 @@ function Get-OtherResourceSummary {
     return , $records
 }
 
+function Add-CoverageEntry {
+    param([string]$Key, [string]$NativeBackup, [string]$VaultName, [string]$PolicyName)
+    if (-not $Key) { return }
+    if (-not $script:State.Coverage.ContainsKey($Key)) { $script:State.Coverage[$Key] = New-List }
+    $script:State.Coverage[$Key].Add(@{ NativeBackup = $NativeBackup; VaultName = $VaultName; PolicyName = $PolicyName })
+}
+
 function Get-BackupInventory {
     <# Existing native protection (-BackupAssessment). Vault rows carry the vault's own placement. #>
     param($Subscription, [bool]$RecoveryServices = $true, [bool]$DataProtection = $true)
@@ -1920,9 +1987,13 @@ function Get-BackupInventory {
             $vname = [string]$v.Name
             try {
                 $newVaultRecord = {
-                    param([string]$Output)
-                    $r = New-WorkloadRecord -Output $Output -Module 'backup' -ResourceId $vid -Subscription $Subscription -ResourceGroup $v.ResourceGroupName `
-                        -Region $v.Location -ResourceName $vname -ResourceType 'Microsoft.RecoveryServices/vaults' -Tags (Get-Prop $v 'Tags') -Candidate $vaultCandidate
+                    # Vault child rows (items, policies) carry their own ResourceKey/ResourceName/type and
+                    # inherit the vault's placement; job rows keep the vault's identity.
+                    param([string]$Output, [string]$ChildId, [string]$ChildName, [string]$ChildType)
+                    $cid = $vid; $cname = $vname; $ctype = 'Microsoft.RecoveryServices/vaults'
+                    if ($ChildId) { $cid = $ChildId; $cname = $ChildName; $ctype = $ChildType }
+                    $r = New-WorkloadRecord -Output $Output -Module 'backup' -ResourceId $cid -Subscription $Subscription -ResourceGroup $v.ResourceGroupName `
+                        -Region $v.Location -ResourceName $cname -ResourceType $ctype -Tags (Get-Prop $v 'Tags') -Candidate $vaultCandidate
                     $r.Net.InheritFrom = $vid
                     if ($r.Columns.Contains('VaultType')) { $r.Columns.VaultType = 'RecoveryServicesVault' }
                     if ($r.Columns.Contains('VaultName')) { $r.Columns.VaultName = $vname }
@@ -1954,9 +2025,12 @@ function Get-BackupInventory {
                         $policy = [string](Get-Prop $it 'ProtectionPolicyName')
                         if ($protKey -and ($wt -eq 'AzureVM' -or $wt -eq 'AzureFiles')) {
                             $ck = ConvertTo-Lower $protKey
-                            if (-not $script:State.Coverage.ContainsKey($ck)) { $script:State.Coverage[$ck] = @{ NativeBackup = 'RecoveryServicesVault'; VaultName = $vname; PolicyName = $policy } }
+                            Add-CoverageEntry -Key $ck -NativeBackup 'RecoveryServicesVault' -VaultName $vname -PolicyName $policy
                         }
-                        $irec = & $newVaultRecord 'backup_items'
+                        $itemName = [string](Get-Prop $it 'Name')
+                        $itemId = [string](Get-Prop $it 'Id')
+                        if (-not $itemId) { $itemId = $vid + '/backupItems/' + $itemName }
+                        $irec = & $newVaultRecord 'backup_items' $itemId $itemName 'Microsoft.RecoveryServices/vaults/backupFabrics/protectionContainers/protectedItems'
                         $ic = $irec.Columns
                         $ic.ItemName = [string](Get-Prop $it 'Name')
                         $ic.WorkloadType = $wt
@@ -1975,7 +2049,9 @@ function Get-BackupInventory {
                 try { $policies = @(Invoke-WithRetry -Operation 'Get-AzRecoveryServicesBackupProtectionPolicy' -ScriptBlock { Get-AzRecoveryServicesBackupProtectionPolicy -VaultId $vid -ErrorAction Stop }) }
                 catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $vid -Operation 'Get-AzRecoveryServicesBackupProtectionPolicy' -Message $_.Exception.Message }
                 foreach ($p in $policies) {
-                    $prec = & $newVaultRecord 'backup_policies'
+                    $polId = [string](Get-Prop $p 'Id')
+                    if (-not $polId) { $polId = $vid + '/backupPolicies/' + [string]$p.Name }
+                    $prec = & $newVaultRecord 'backup_policies' $polId ([string]$p.Name) 'Microsoft.RecoveryServices/vaults/backupPolicies'
                     $pc = $prec.Columns
                     $pc.PolicyName = [string]$p.Name
                     $pc.WorkloadType = [string](Get-Prop $p 'WorkloadType')
@@ -2036,8 +2112,10 @@ function Get-BackupInventory {
                 try { $policies = @(Invoke-WithRetry -Operation 'Get-AzDataProtectionBackupPolicy' -ScriptBlock { Get-AzDataProtectionBackupPolicy -ResourceGroupName $brg -VaultName $bname -ErrorAction Stop }) }
                 catch { Add-ErrorRow -SubscriptionId $subId -Module 'backup' -ResourceKey $bid -Operation 'Get-AzDataProtectionBackupPolicy' -Message $_.Exception.Message }
                 foreach ($p in $policies) {
-                    $prec = New-WorkloadRecord -Output 'backup_policies' -Module 'backup' -ResourceId $bid -Subscription $Subscription -ResourceGroup $brg `
-                        -Region $bv.Location -ResourceName $bname -ResourceType 'Microsoft.DataProtection/backupVaults' -Tags (Get-Prop $bv 'Tag', 'Tags') -Candidate $vaultCandidate
+                    $polId = [string](Get-Prop $p 'Id')
+                    if (-not $polId) { $polId = $bid + '/backupPolicies/' + [string]$p.Name }
+                    $prec = New-WorkloadRecord -Output 'backup_policies' -Module 'backup' -ResourceId $polId -Subscription $Subscription -ResourceGroup $brg `
+                        -Region $bv.Location -ResourceName ([string]$p.Name) -ResourceType 'Microsoft.DataProtection/backupVaults/backupPolicies' -Tags (Get-Prop $bv 'Tag', 'Tags') -Candidate $vaultCandidate
                     $prec.Net.InheritFrom = $bid
                     $pc = $prec.Columns
                     $pc.VaultType = 'BackupVault'; $pc.VaultName = $bname
@@ -2056,10 +2134,12 @@ function Get-BackupInventory {
                     $policyName = Get-NameFromId ([string](Get-Prop $bi 'Property.PolicyInfo.PolicyId'))
                     if ($src) {
                         $ck = ConvertTo-Lower $src
-                        if (-not $script:State.Coverage.ContainsKey($ck)) { $script:State.Coverage[$ck] = @{ NativeBackup = 'BackupVault'; VaultName = $bname; PolicyName = $policyName } }
+                        Add-CoverageEntry -Key $ck -NativeBackup 'BackupVault' -VaultName $bname -PolicyName $policyName
                     }
-                    $irec = New-WorkloadRecord -Output 'backup_items' -Module 'backup' -ResourceId $bid -Subscription $Subscription -ResourceGroup $brg `
-                        -Region $bv.Location -ResourceName $bname -ResourceType 'Microsoft.DataProtection/backupVaults' -Tags (Get-Prop $bv 'Tag', 'Tags') -Candidate $vaultCandidate
+                    $biId = [string](Get-Prop $bi 'Id')
+                    if (-not $biId) { $biId = $bid + '/backupInstances/' + [string]$bi.Name }
+                    $irec = New-WorkloadRecord -Output 'backup_items' -Module 'backup' -ResourceId $biId -Subscription $Subscription -ResourceGroup $brg `
+                        -Region $bv.Location -ResourceName ([string]$bi.Name) -ResourceType 'Microsoft.DataProtection/backupVaults/backupInstances' -Tags (Get-Prop $bv 'Tag', 'Tags') -Candidate $vaultCandidate
                     $irec.Net.InheritFrom = $bid
                     $ic = $irec.Columns
                     $ic.VaultType = 'BackupVault'; $ic.VaultName = $bname
@@ -2133,11 +2213,19 @@ function Get-PlacementColumns {
     $net = $Record.Net
 
     if ($net.InheritFrom) {
+        # Child row: own ResourceKey, ResourceName (and ResourceType / CandidateVeeamProtection, which
+        # identify the row rather than place it); every other placement column comes from the parent.
         $parent = $script:State.Resolved[(ConvertTo-Lower $net.InheritFrom)]
         if ($parent) {
-            foreach ($f in @('NetworkAccess', 'VNetSubscriptionId', 'VNetResourceGroup', 'VNetName', 'SubnetName', 'SubnetPrefix', 'PrivateEndpointCount')) { $pl[$f] = $parent[$f] }
+            foreach ($f in $script:PlacementColumns) {
+                if (@('ResourceKey', 'ResourceName', 'ResourceType', 'CandidateVeeamProtection') -contains $f) { continue }
+                $pl[$f] = $parent[$f]
+            }
         }
-        if ($net.ExplicitAccess) { $pl.NetworkAccess = $net.ExplicitAccess }
+        else {
+            Add-ErrorRow -SubscriptionId $Record.SubscriptionId -Module $Record.Module -ResourceKey $Record.ResourceId -Operation 'ResolveParent' `
+                -Message "Parent $($net.InheritFrom) was not collected; network columns left blank."
+        }
         if (-not $pl.NetworkAccess) { $pl.NetworkAccess = 'N/A' }
         return @{ Placement = $pl; Attachments = $att }
     }
@@ -2145,12 +2233,14 @@ function Get-PlacementColumns {
         $s = Resolve-SubnetInfo -SubnetId $net.SelfSubnetId -Record $Record
         foreach ($f in @('VNetSubscriptionId', 'VNetResourceGroup', 'VNetName', 'SubnetName', 'SubnetPrefix')) { $pl[$f] = $s[$f] }
         $pl.NetworkAccess = 'N/A'
+        $pl.PrivateEndpointCount = $net.SelfPeCount
         return @{ Placement = $pl; Attachments = $att }
     }
     if ($net.SelfVNetId) {
         $v = $script:State.VNets[(ConvertTo-Lower $net.SelfVNetId)]
         if ($v) { $pl.VNetSubscriptionId = $v.SubscriptionId; $pl.VNetResourceGroup = $v.ResourceGroup; $pl.VNetName = $v.Name }
         $pl.NetworkAccess = 'N/A'
+        $pl.PrivateEndpointCount = $net.SelfPeCount
         return @{ Placement = $pl; Attachments = $att }
     }
 
@@ -2226,16 +2316,24 @@ function Resolve-AllPlacement {
     <# Pass 3. Records that inherit placement (disks, MI databases, vault files) are resolved after
        their parents. #>
     $ordered = New-List
-    foreach ($r in $script:State.Records) { if (-not $r.Plain -and -not $r.Net.InheritFrom) { $ordered.Add($r) } }
+    foreach ($r in $script:State.Records) { if (-not $r.Plain -and $r.Output -and -not $r.Net.InheritFrom) { $ordered.Add($r) } }
+    # Hidden parents last among parents: skipped when an exported row already resolved the same resource.
+    foreach ($r in $script:State.Records) { if (-not $r.Plain -and -not $r.Output -and -not $r.Net.InheritFrom) { $ordered.Add($r) } }
     foreach ($r in $script:State.Records) { if (-not $r.Plain -and $r.Net.InheritFrom) { $ordered.Add($r) } }
     foreach ($r in $script:State.Records) { if ($r.Plain) { $script:State.Outputs[$r.Output].Add($r.Row) } }
     foreach ($rec in $ordered) {
         try {
-            $schema = $script:OutputSchemas[$rec.Output]
-            if ($rec.Columns.Count -ne $schema.Count) { throw "Internal: column set of $($rec.Output) does not match its schema." }
+            $hidden = (-not $rec.Output)
+            if (-not $hidden) {
+                $schema = $script:OutputSchemas[$rec.Output]
+                if ($rec.Columns.Count -ne $schema.Count) { throw "Internal: column set of $($rec.Output) does not match its schema." }
+            }
+            if ($hidden -and $script:State.Resolved.ContainsKey((ConvertTo-Lower $rec.ResourceId))) { continue }
             $res = Get-PlacementColumns -Record $rec
             $pl = $res.Placement
             if (-not $script:State.Resolved.ContainsKey($pl.ResourceKey)) { $script:State.Resolved[$pl.ResourceKey] = $pl }
+            # Hidden parent records (SQL servers, storage accounts for file shares) only provide placement.
+            if ($hidden) { continue }
             $row = [ordered]@{}
             foreach ($k in $pl.Keys) { $row[$k] = $pl[$k] }
             foreach ($t in $script:State.TagNames) { $row['Tag_' + $t] = Get-TagValue -Tags $rec.Tags -Name $t }
@@ -2254,7 +2352,16 @@ function Add-BackupCoverage {
             $r = [ordered]@{}
             foreach ($p in $script:PlacementColumns) { $r[$p] = $row.$p }
             foreach ($t in (Get-TagColumnNames)) { $r[$t] = $row.$t }
-            if ($cov) { $r.NativeBackup = $cov.NativeBackup; $r.VaultName = $cov.VaultName; $r.PolicyName = $cov.PolicyName }
+            if ($cov) {
+                # Both vault types may cover one resource: list each, joined with ";".
+                $types = New-List; $vaults = New-List; $pols = New-List
+                foreach ($c in $cov) {
+                    if (-not $types.Contains($c.NativeBackup)) { $types.Add($c.NativeBackup) }
+                    $vaults.Add($c.VaultName); $pols.Add($c.PolicyName)
+                }
+                $r.NativeBackup = $types -join ';'; $r.VaultName = $vaults -join ';'; $r.PolicyName = $pols -join ';'
+            }
+            elseif ($script:PlatformBackupOutputs -contains $out) { $r.NativeBackup = 'PlatformBuiltIn'; $r.VaultName = ''; $r.PolicyName = '' }
             else { $r.NativeBackup = 'None'; $r.VaultName = ''; $r.PolicyName = '' }
             $script:State.Outputs['backup_coverage'].Add([pscustomobject]$r)
         }
@@ -2420,7 +2527,7 @@ function Build-EnvironmentMap {
             $node = & $getNode $row.SubscriptionId $row.SubscriptionName $row.Region $row.VNetSubscriptionId $row.VNetResourceGroup $row.VNetName $row.SubnetName
             $size = $null
             if ($col) { $size = $row.$col }
-            $node.Resources.Add([ordered]@{ ResourceKey = $row.ResourceKey; ResourceType = $row.ResourceType; ResourceName = $row.ResourceName; NetworkAccess = $row.NetworkAccess; HeadlineSize_GiB = $size })
+            $node.Resources.Add([ordered]@{ ResourceKey = $row.ResourceKey; ResourceType = $row.ResourceType; ResourceName = $row.ResourceName; NetworkAccess = $row.NetworkAccess; HeadlineSize = $size; HeadlineUnit = $script:SummarySources[$out].Unit })
         }
     }
     return $root
@@ -2586,22 +2693,40 @@ function Invoke-AzureEnvironmentAssessment {
 
         # --- Pass 1: network backbone, every subscription ------------------------------------------------
         $readable = New-List
+        $subRead = @{}    # subscription id -> $true once anything could be read from it
+        $subFail = @{}    # subscription id -> reason it was skipped as failing
         $vnetEnabled = $enabled -contains 'vnet'
         Write-Step 'Pass 1/3: network backbone'
         foreach ($s in $subs) {
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             Write-Step ("  [{0}] {1}" -f $s.Id, (Get-Mask $s.Name))
-            try {
-                Invoke-WithRetry -Operation 'Set-AzContext' -ScriptBlock { Set-AzContext -SubscriptionId $s.Id -ErrorAction Stop } | Out-Null
-                if ($vnetEnabled) { Get-NetworkBackbone -Subscription $s }
-                $readable.Add($s)
-                Write-Step ("    backbone done in {0:n1}s" -f $sw.Elapsed.TotalSeconds) -Level Success
-            }
+            # A failing subscription is one where the context cannot be set, or the first call returns
+            # 401/403: it is skipped. Any other failure is logged and the subscription carries on.
+            try { Invoke-WithRetry -Operation 'Set-AzContext' -ScriptBlock { Set-AzContext -SubscriptionId $s.Id -ErrorAction Stop } | Out-Null }
             catch {
-                $skipped.Add([pscustomobject]@{ SubscriptionId = [string]$s.Id; SubscriptionName = (Get-Mask $s.Name); Reason = 'Backbone collection failed: ' + (Protect-Message $_.Exception.Message) })
-                Add-ErrorRow -SubscriptionId $s.Id -Module 'vnet' -Operation 'SubscriptionBackbone' -Message ('Subscription skipped. ' + $_.Exception.Message)
-                Write-Step ("    subscription skipped") -Level Warning
+                $subFail[[string]$s.Id] = 'Cannot set context: ' + $_.Exception.Message
+                Add-ErrorRow -SubscriptionId $s.Id -Module 'main' -Operation 'Set-AzContext' -Message ('Subscription skipped. ' + $_.Exception.Message)
+                Write-Step '    subscription skipped' -Level Warning
+                continue
             }
+            if ($vnetEnabled) {
+                try {
+                    Get-NetworkBackbone -Subscription $s
+                    $subRead[[string]$s.Id] = $true
+                    Write-Step ("    backbone done in {0:n1}s" -f $sw.Elapsed.TotalSeconds) -Level Success
+                }
+                catch {
+                    $code = Get-HttpStatusCode -ErrorRecord $_
+                    if ($code -eq 401 -or $code -eq 403) {
+                        $subFail[[string]$s.Id] = "HTTP $code on first call: " + $_.Exception.Message
+                        Add-ErrorRow -SubscriptionId $s.Id -Module 'vnet' -Operation 'Get-AzVirtualNetwork' -Message ('Subscription skipped. ' + $_.Exception.Message)
+                        Write-Step '    subscription skipped' -Level Warning
+                        continue
+                    }
+                    Add-ErrorRow -SubscriptionId $s.Id -Module 'vnet' -Operation 'Get-AzVirtualNetwork' -Message $_.Exception.Message
+                }
+            }
+            $readable.Add($s)
         }
         if ($vnetEnabled) {
             foreach ($r in (Get-VNetInventory)) { $script:State.Records.Add($r) }
@@ -2619,8 +2744,7 @@ function Invoke-AzureEnvironmentAssessment {
             Write-Step ("  [{0}] {1}" -f $s.Id, (Get-Mask $s.Name))
             try { Invoke-WithRetry -Operation 'Set-AzContext' -ScriptBlock { Set-AzContext -SubscriptionId $s.Id -ErrorAction Stop } | Out-Null }
             catch {
-                Add-ErrorRow -SubscriptionId $s.Id -Module 'main' -Operation 'Set-AzContext' -Message ('Subscription skipped in pass 2. ' + $_.Exception.Message)
-                $skipped.Add([pscustomobject]@{ SubscriptionId = [string]$s.Id; SubscriptionName = (Get-Mask $s.Name); Reason = 'Set-AzContext failed in pass 2' })
+                Add-ErrorRow -SubscriptionId $s.Id -Module 'main' -Operation 'Set-AzContext' -Message ('Pass 2 skipped for this subscription. ' + $_.Exception.Message)
                 continue
             }
             foreach ($m in $moduleFunctions.Keys) {
@@ -2630,6 +2754,7 @@ function Invoke-AzureEnvironmentAssessment {
                 try {
                     $recs = & $moduleFunctions[$m] -Subscription $s
                     foreach ($r in $recs) { $script:State.Records.Add($r) }
+                    $subRead[[string]$s.Id] = $true
                     Write-Step ("    module {0} done in {1:n1}s" -f $m, $mw.Elapsed.TotalSeconds) -Level Success
                 }
                 catch {
@@ -2641,12 +2766,22 @@ function Invoke-AzureEnvironmentAssessment {
                 $mw = [System.Diagnostics.Stopwatch]::StartNew()
                 try {
                     foreach ($r in (Get-BackupInventory -Subscription $s -RecoveryServices $hasRsv -DataProtection $hasDpp)) { $script:State.Records.Add($r) }
+                    $subRead[[string]$s.Id] = $true
                     Write-Step ("    backup assessment done in {0:n1}s" -f $mw.Elapsed.TotalSeconds) -Level Success
                 }
                 catch { Add-ErrorRow -SubscriptionId $s.Id -Module 'backup' -Operation 'Get-BackupInventory' -Message $_.Exception.Message }
             }
-            $processed.Add([pscustomobject]@{ SubscriptionId = [string]$s.Id; SubscriptionName = (Get-Mask $s.Name) })
             Write-Step ("  subscription done in {0:n1}s" -f $subWatch.Elapsed.TotalSeconds) -Level Success
+        }
+        # Manifest: a subscription is listed as skipped only when nothing could be read from it.
+        foreach ($s in $subs) {
+            $sid = [string]$s.Id
+            if ($subRead.ContainsKey($sid)) { $processed.Add([pscustomobject]@{ SubscriptionId = $sid; SubscriptionName = (Get-Mask $s.Name) }) }
+            else {
+                $reason = 'Nothing could be read from this subscription.'
+                if ($subFail.ContainsKey($sid)) { $reason = $subFail[$sid] }
+                $skipped.Add([pscustomobject]@{ SubscriptionId = $sid; SubscriptionName = (Get-Mask $s.Name); Reason = $reason })
+            }
         }
         if ($enabled -contains 'entra') {
             Write-Step '  tenant: module entra'
@@ -2695,8 +2830,12 @@ function Invoke-AzureEnvironmentAssessment {
         if ($k -eq 'AnonymiseSalt') { continue }
         $v = $PSBoundParameters[$k]
         if ($v -is [System.Management.Automation.SwitchParameter]) { $v = [bool]$v }
+        if ($k -eq 'OutputPath') { $v = Protect-Message ([string]$v) }
         $boundParams[$k] = $v
     }
+    $boundParams['OutputPath'] = Protect-Message $OutputPath
+    $skippedOut = New-List
+    foreach ($sk in $skipped) { $skippedOut.Add([pscustomobject]@{ SubscriptionId = $sk.SubscriptionId; SubscriptionName = $sk.SubscriptionName; Reason = (Protect-Message ([string]$sk.Reason)) }) }
     $boundParams['EffectiveModules'] = $enabled.ToArray()
     $manifest = [ordered]@{
         ScriptVersion          = $script:ScriptVersion
@@ -2709,7 +2848,7 @@ function Invoke-AzureEnvironmentAssessment {
         Parameters             = $boundParams
         ModulesDisabled        = $disabled.ToArray()
         SubscriptionsProcessed = $processed.ToArray()
-        SubscriptionsSkipped   = $skipped.ToArray()
+        SubscriptionsSkipped   = $skippedOut.ToArray()
         Anonymised             = [bool]$Anonymise
         ErrorCount             = $script:State.Errors.Count
     }
